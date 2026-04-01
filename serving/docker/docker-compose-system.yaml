@@ -1,0 +1,28 @@
+version: "3.9"
+
+services:
+  fastapi:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.fastapi
+    container_name: fastapi
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../model_artifacts:/app/model_artifacts:ro
+    environment:
+      - MODEL_VERSION=1.0.0
+    restart: unless-stopped
+
+  jupyter:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.jupyter
+    container_name: jupyter
+    ports:
+      - "8888:8888"
+    volumes:
+      - ../workspace:/home/jovyan/work
+    environment:
+      - JUPYTER_ENABLE_LAB=yes
+    restart: unless-stopped

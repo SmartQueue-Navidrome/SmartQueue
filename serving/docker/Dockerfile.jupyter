@@ -1,0 +1,18 @@
+FROM quay.io/jupyter/base-notebook:python-3.11
+
+USER root
+RUN apt-get update -qq && \
+    apt-get install -y --no-install-recommends build-essential curl git && \
+    rm -rf /var/lib/apt/lists/*
+
+USER ${NB_UID}
+RUN pip install --no-cache-dir \
+    torch==2.3.0 --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir \
+    onnx==1.16.0 \
+    onnxruntime==1.18.0 \
+    neural-compressor==2.5.0 \
+    numpy==1.26.4 \
+    requests==2.32.3
+
+WORKDIR /home/jovyan/work

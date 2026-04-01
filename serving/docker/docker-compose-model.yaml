@@ -1,0 +1,16 @@
+version: "3.9"
+
+services:
+  jupyter:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.jupyter
+    container_name: jupyter
+    ports:
+      - "8888:8888"
+    volumes:
+      - ../workspace:/home/jovyan/work
+      - ../model_artifacts:/home/jovyan/work/model_artifacts
+    environment:
+      - JUPYTER_ENABLE_LAB=yes
+    restart: unless-stopped
