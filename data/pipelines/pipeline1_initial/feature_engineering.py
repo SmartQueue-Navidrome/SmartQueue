@@ -18,6 +18,7 @@ Usage:
     python feature_engineering.py [--output-dir /path/to/SmartQueue/data]
 """
 
+import os
 import json
 import time
 import shutil
@@ -276,7 +277,7 @@ def process_split(name: str, splits_dir: Path, processed_dir: Path) -> dict:
 
 def main():
     parser = argparse.ArgumentParser()
-    default_output = str(Path(__file__).resolve().parents[3] / "data")
+    default_output = os.getenv("OUTPUT_DIR", "/app/data")
     parser.add_argument("--output-dir", default=default_output)
     args = parser.parse_args()
 

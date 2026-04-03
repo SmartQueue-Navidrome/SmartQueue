@@ -111,7 +111,6 @@ ObjStore_proj13/
   "video_id": "901a48d1-...",
   "rank_position": 1,
   "predicted_engagement_prob": 0.85,
-  "actual_time_in_video": 22.0,
   "actual_is_engaged": 0,
   "timestamp": "2026-04-02T10:00:00Z"
 }

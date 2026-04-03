@@ -29,7 +29,11 @@ echo "============================================"
 
 echo ""
 echo "--- Step 1: Ingestion ---"
-python "$SCRIPT_DIR/ingest.py" --output-dir "$OUTPUT_DIR"
+INGEST_ARGS="--output-dir $OUTPUT_DIR"
+if [ -n "$SOURCE" ]; then
+    INGEST_ARGS="$INGEST_ARGS --source $SOURCE"
+fi
+python "$SCRIPT_DIR/ingest.py" $INGEST_ARGS
 
 echo ""
 echo "--- Step 2: Feature Engineering ---"
