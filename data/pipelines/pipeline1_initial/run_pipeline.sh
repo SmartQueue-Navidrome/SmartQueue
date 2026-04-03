@@ -28,6 +28,9 @@ echo " Output dir: $OUTPUT_DIR"
 echo "============================================"
 
 echo ""
+echo "--- Installing dependencies ---"
+pip install -q -r "$SCRIPT_DIR/requirements.txt"
+
 echo "--- Step 1: Ingestion ---"
 INGEST_ARGS="--output-dir $OUTPUT_DIR"
 if [ -n "$SOURCE" ]; then

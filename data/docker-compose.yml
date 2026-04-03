@@ -1,14 +1,16 @@
 services:
-  pipeline1:
-    build: pipelines/pipeline1_initial/
-    container_name: smartqueue-pipeline1
-    environment:
-      - OUTPUT_DIR=/app/data
-      - SOURCE=/xite/xite_msd.parquet
-    volumes:
-      - ./raw:/app/data/raw
-      - ./processed:/app/data/processed
-      - ../XITE-Million-Sessions-Dataset:/xite
+  # pipeline1 requires ~12GB RAM; run directly on the host instead:
+  #   bash data/pipelines/pipeline1_initial/run_pipeline.sh
+  # pipeline1:
+  #   build: pipelines/pipeline1_initial/
+  #   container_name: smartqueue-pipeline1
+  #   environment:
+  #     - OUTPUT_DIR=/app/data
+  #     - SOURCE=/xite/xite_msd.parquet
+  #   volumes:
+  #     - ./raw:/app/data/raw
+  #     - ./processed:/app/data/processed
+  #     - ../XITE-Million-Sessions-Dataset:/xite
 
   generator:
     build: pipelines/generator/
