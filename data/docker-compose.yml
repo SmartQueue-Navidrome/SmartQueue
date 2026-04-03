@@ -29,3 +29,18 @@ services:
     volumes:
       - ./processed:/app/data/processed
       - ./feedback:/app/data/feedback
+
+  pipeline2:
+    build: pipelines/pipeline2_retrain/
+    container_name: smartqueue-pipeline2
+    environment:
+      - DATA_DIR=/app/data
+      - S3_ENDPOINT=${S3_ENDPOINT:-}
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:-}
+      - S3_BUCKET=${S3_BUCKET:-ObjStore_proj13}
+      - LOCAL_MODE=${LOCAL_MODE:-true}
+    volumes:
+      - ./processed:/app/data/processed
+      - ./feedback:/app/data/feedback
+      - ./retrain:/app/data/retrain

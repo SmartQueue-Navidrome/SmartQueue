@@ -257,6 +257,8 @@ def process_split(name: str, splits_dir: Path, processed_dir: Path) -> dict:
         print(f"  Synthetic done  ({time.perf_counter()-t:.1f}s)")
         subset   = pd.concat([subset[FINAL_COLS], synth_df], ignore_index=True)
         print(f"  Total after synthetic: {len(subset):,}")
+    elif name == "production":
+        subset = subset[FINAL_COLS + ["time_in_video"]]
     else:
         subset = subset[FINAL_COLS]
 

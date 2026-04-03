@@ -77,10 +77,10 @@ def main():
     print(f"\nSession:    {session_id}")
     print(f"Total rows: {len(session)}  |  Using first {half} events for user profile")
 
-    # Build events from first half
+    # Build events from first half using real time_in_video (preserved in production.parquet)
     events = [
         {
-            "time_in_video": float(row["user_watch_time_avg"]),  # proxy since time_in_video not stored
+            "time_in_video": float(row["time_in_video"]),
             "genre_encoded": int(row["genre_encoded"]),
         }
         for _, row in first_half.iterrows()
