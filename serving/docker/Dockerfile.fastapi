@@ -4,9 +4,11 @@ WORKDIR /app
 COPY app/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY app/app.py .
+COPY app/start.sh .
+RUN chmod +x /app/start.sh
 
 ENV MODEL_PATH=/app/model_artifacts/smartqueue_ranker.onnx
 ENV MODEL_VERSION=1.0.0
 
 EXPOSE 8000
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["/app/start.sh"]
