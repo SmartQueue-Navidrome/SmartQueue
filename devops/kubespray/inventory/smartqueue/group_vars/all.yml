@@ -1,0 +1,13 @@
+# Kubespray all.yml - cluster-wide settings
+# Based on Lab 2 configuration
+
+# Use internal IPs for etcd
+etcd_listen_address: "0.0.0.0"
+
+# No cloud provider (Chameleon doesn't have native K8S cloud provider)
+# cloud_provider is left unset intentionally
+
+# DNS
+upstream_dns_servers:
+  - 8.8.8.8
+  - 8.8.4.4

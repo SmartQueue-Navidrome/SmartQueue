@@ -1,0 +1,9 @@
+# Copy this file to terraform.tfvars and fill in your values
+# DO NOT commit terraform.tfvars to Git
+
+cloud_name     = "KVM@TACC"
+suffix         = "projXX"          # Replace with your project ID
+key_pair       = "my-chameleon-key" # SSH key pair name registered on KVM@TACC
+reservation_id = ""                 # Lease reservation ID (if needed)
+image          = "CC-Ubuntu24.04"
+flavor         = "m1.large"
