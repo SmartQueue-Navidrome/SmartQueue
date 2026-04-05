@@ -1,0 +1,13 @@
+{
+  "option": "baseline_http",
+  "host": "http://localhost:8000",
+  "model_path": "unknown",
+  "model_version": "unknown",
+  "uvicorn_workers": "unknown",
+  "typical_users": "10",
+  "typical_spawn_rate": "2",
+  "typical_runtime": "5m",
+  "peak_users": "30",
+  "peak_spawn_rate": "5",
+  "peak_runtime": "5m"
+}

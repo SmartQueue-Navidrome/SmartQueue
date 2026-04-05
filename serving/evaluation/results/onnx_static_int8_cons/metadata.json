@@ -1,0 +1,13 @@
+{
+  "option": "onnx_static_int8_cons",
+  "host": "http://fastapi:8000",
+  "model_path": "/app/model_artifacts/smartqueue_ranker_static_cons.onnx",
+  "model_version": "onnx_static_int8_cons",
+  "uvicorn_workers": "1",
+  "typical_users": "10",
+  "typical_spawn_rate": "2",
+  "typical_runtime": "5m",
+  "peak_users": "30",
+  "peak_spawn_rate": "5",
+  "peak_runtime": "5m"
+}
