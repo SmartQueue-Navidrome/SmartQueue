@@ -1,0 +1,75 @@
+---
+# Block storage setup on node1 (Lab 4-1 pattern)
+# Formats and mounts Chameleon block volumes for K8S persistent storage
+#
+# Prerequisites: volumes attached via Terraform (volumes.tf)
+# The device paths (e.g. /dev/vdb, /dev/vdc) come from
+# terraform output volume_devices. Update the vars below accordingly.
+#
+# Note: Object storage uses Chameleon native S3 (CHI@TACC), not self-hosted MinIO.
+# Only Navidrome and PostgreSQL need block storage.
+
+- name: Setup block storage volumes on node1
+  hosts: storage_nodes
+  become: true
+  vars:
+    # Update these device paths based on terraform output volume_devices
+    volumes:
+      - device: /dev/vdc
+        mount: /mnt/smartqueue-data/navidrome
+        label: navidrome
+      - device: /dev/vdb
+        mount: /mnt/smartqueue-data/postgres
+        label: postgres
+
+  tasks:
+
+    - name: Create parent mount directory
+      file:
+        path: /mnt/smartqueue-data
+        state: directory
+        owner: cc
+        group: cc
+
+    - name: Create partition table (GPT)
+      command: parted -s {{ item.device }} mklabel gpt
+      loop: "{{ volumes }}"
+      args:
+        creates: "{{ item.mount }}"
+
+    - name: Create partition
+      command: parted -s {{ item.device }} mkpart primary ext4 0% 100%
+      loop: "{{ volumes }}"
+      args:
+        creates: "{{ item.mount }}"
+
+    - name: Format partition as ext4
+      filesystem:
+        fstype: ext4
+        dev: "{{ item.device }}1"
+      loop: "{{ volumes }}"
+
+    - name: Create mount points
+      file:
+        path: "{{ item.mount }}"
+        state: directory
+        owner: cc
+        group: cc
+      loop: "{{ volumes }}"
+
+    - name: Mount volumes
+      mount:
+        path: "{{ item.mount }}"
+        src: "{{ item.device }}1"
+        fstype: ext4
+        state: mounted
+      loop: "{{ volumes }}"
+
+    - name: Set ownership for mount points
+      file:
+        path: "{{ item.mount }}"
+        state: directory
+        owner: cc
+        group: cc
+        recurse: true
+      loop: "{{ volumes }}"

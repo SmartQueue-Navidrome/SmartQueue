@@ -1,0 +1,18 @@
+# Kubespray k8s_cluster.yml - K8S cluster settings
+
+# Use containerd as container runtime (default for kubespray 2.26)
+container_manager: containerd
+
+# Enable metrics server for HPA
+metrics_server_enabled: true
+
+# Network plugin
+kube_network_plugin: calico
+
+# Allow pods on control plane node (single control plane, 3 workers)
+kube_control_plane_node_labels:
+  node-role.kubernetes.io/control-plane: ""
+
+# Private registry (insecure)
+containerd_insecure_registries:
+  "node1:5000": "http://192.168.1.11:5000"
