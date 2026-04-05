@@ -18,6 +18,7 @@ Usage:
     python feature_engineering.py [--output-dir /path/to/SmartQueue/data]
 """
 
+import os
 import json
 import time
 import shutil
@@ -256,6 +257,8 @@ def process_split(name: str, splits_dir: Path, processed_dir: Path) -> dict:
         print(f"  Synthetic done  ({time.perf_counter()-t:.1f}s)")
         subset   = pd.concat([subset[FINAL_COLS], synth_df], ignore_index=True)
         print(f"  Total after synthetic: {len(subset):,}")
+    elif name == "production":
+        subset = subset[FINAL_COLS + ["time_in_video"]]
     else:
         subset = subset[FINAL_COLS]
 
@@ -276,7 +279,7 @@ def process_split(name: str, splits_dir: Path, processed_dir: Path) -> dict:
 
 def main():
     parser = argparse.ArgumentParser()
-    default_output = str(Path(__file__).resolve().parents[3] / "data")
+    default_output = os.getenv("OUTPUT_DIR", "/app/data")
     parser.add_argument("--output-dir", default=default_output)
     args = parser.parse_args()
 

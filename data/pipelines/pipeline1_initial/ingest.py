@@ -22,8 +22,9 @@ load_dotenv()
 
 XITE_URL = "https://millionsessionsdataset.xite.com/xite_msd.zip"
 
-# Default: look for local file relative to repo root
-DEFAULT_SOURCE = Path(__file__).resolve().parents[3] / "XITE-Million-Sessions-Dataset" / "xite_msd.parquet"
+# Default: look for local file relative to repo root (overridden by --source or SOURCE env var)
+_p = Path(__file__).resolve().parents
+DEFAULT_SOURCE = _p[min(3, len(_p) - 1)] / "XITE-Million-Sessions-Dataset" / "xite_msd.parquet"
 
 
 def copy_parquet(source: Path, raw_dir: Path) -> Path:
@@ -57,7 +58,7 @@ def write_metadata(raw_dir: Path, row_count: int):
 
 def main():
     parser = argparse.ArgumentParser()
-    default_output = str(Path(__file__).resolve().parents[3] / "data")
+    default_output = os.getenv("OUTPUT_DIR", "/app/data")
     parser.add_argument("--output-dir", default=default_output, help="Base output directory")
     parser.add_argument("--source", default=str(DEFAULT_SOURCE), help="Path to local xite_msd.parquet")
     args = parser.parse_args()

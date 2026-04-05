@@ -1,0 +1,57 @@
+# K8S Job equivalent for training container
+# Dockerfile: training/docker/Dockerfile
+# Usage: kubectl apply -f job-template.yaml (after updating config)
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smartqueue-training
+  namespace: smartqueue-prod
+  labels:
+    app: smartqueue-training
+spec:
+  backoffLimit: 1
+  template:
+    metadata:
+      labels:
+        app: smartqueue-training
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: training
+          image: node1:5000/smartqueue-training:v1
+          command: ["python", "train_ranking.py", "--config", "/app/configs/stage_b_lgbm_v1.yaml"]
+          env:
+            - name: MLFLOW_TRACKING_URI
+              value: http://mlflow.smartqueue-prod.svc.cluster.local:5000
+            # Chameleon native object storage at CHI@TACC
+            - name: MLFLOW_S3_ENDPOINT_URL
+              value: https://chi.tacc.chameleoncloud.org:7480
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: AWS_SECRET_ACCESS_KEY
+            # Data team's s3.py uses these env var names
+            - name: S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_ACCESS_KEY
+            - name: S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_SECRET_KEY
+          resources:
+            requests:
+              cpu: 1000m
+              memory: 1Gi
+            limits:
+              cpu: 2000m
+              memory: 2Gi

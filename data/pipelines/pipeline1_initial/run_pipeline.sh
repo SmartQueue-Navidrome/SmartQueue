@@ -27,13 +27,26 @@ echo " SmartQueue Pipeline 1: Ingestion + Feature"
 echo " Output dir: $OUTPUT_DIR"
 echo "============================================"
 
+PYTHON=${PYTHON:-python3}
+
 echo ""
+echo "--- Installing dependencies ---"
+$PYTHON -m pip install -r "$SCRIPT_DIR/requirements.txt"
+
 echo "--- Step 1: Ingestion ---"
-python "$SCRIPT_DIR/ingest.py" --output-dir "$OUTPUT_DIR"
+INGEST_ARGS="--output-dir $OUTPUT_DIR"
+if [ -n "$SOURCE" ]; then
+    INGEST_ARGS="$INGEST_ARGS --source $SOURCE"
+fi
+$PYTHON "$SCRIPT_DIR/ingest.py" $INGEST_ARGS
 
 echo ""
 echo "--- Step 2: Feature Engineering ---"
-python "$SCRIPT_DIR/feature_engineering.py" --output-dir "$OUTPUT_DIR"
+$PYTHON "$SCRIPT_DIR/feature_engineering.py" --output-dir "$OUTPUT_DIR"
+
+echo ""
+echo "--- Step 3: Upload to S3 ---"
+$PYTHON "$SCRIPT_DIR/upload_data.py" --data-dir "$OUTPUT_DIR"
 
 echo ""
 echo "============================================"

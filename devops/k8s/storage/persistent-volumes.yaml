@@ -1,0 +1,58 @@
+# PersistentVolumes backed by Chameleon block storage
+# Volumes are mounted to node1 via Ansible setup_storage.yaml
+# Using hostPath type pointing to the mounted block volumes
+#
+# Note: Object storage (datasets, model artifacts) uses Chameleon native S3
+# at CHI@TACC (https://chi.tacc.chameleoncloud.org:7480), not self-hosted MinIO.
+# Only Navidrome and PostgreSQL need block storage PVs.
+
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-navidrome
+  labels:
+    type: local
+    app: navidrome
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: /mnt/smartqueue-data/navidrome
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - node1
+
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-postgres
+  labels:
+    type: local
+    app: postgres
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: /mnt/smartqueue-data/postgres
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - node1
+

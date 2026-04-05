@@ -88,6 +88,8 @@ ObjStore_proj13/
 
 **Note on user features:** For training and evaluation, user features are computed from all events in the session and attached to every row. For production simulation, user features are computed from only the first half of the session to mirror real serving behavior.
 
+**Note on online vs. pre-computed features:** In a real serving scenario, user features would be computed on-demand at inference time from the user's current session events — this path is implemented in `data/pipelines/feature_service/feature_service.py`. In this simulation, user features are pre-computed during feature engineering and stored directly in `production.parquet` to avoid redundant computation overhead when the data generator replays sessions. The two approaches are functionally equivalent and use identical logic.
+
 **Written by:** Feature pipeline (Pipeline 1, one-shot)
 **Versioned by:** `metadata.json` with timestamp and split sizes
 
@@ -101,7 +103,7 @@ ObjStore_proj13/
 
 | File | Description |
 |------|-------------|
-| `{YYYYMMDD}_{session_id}.jsonl` | One JSON record per ranked song in this session |
+| `{YYYYMMDD}_{session_id}_{loop_num}_{run_id}.jsonl` | One JSON record per ranked song in this session |
 
 **Schema — each JSONL record:**
 
@@ -111,13 +113,12 @@ ObjStore_proj13/
   "video_id": "901a48d1-...",
   "rank_position": 1,
   "predicted_engagement_prob": 0.85,
-  "actual_time_in_video": 22.0,
   "actual_is_engaged": 0,
   "timestamp": "2026-04-02T10:00:00Z"
 }
 ```
 
-**Write pattern:** The generator holds feedback records in memory during simulation. At session end, all records are written to MinIO in a single PUT as `{YYYYMMDD}_{session_id}.jsonl`. This avoids concurrent write conflicts when multiple sessions run in parallel, and allows the retrain pipeline to filter by date prefix.
+**Write pattern:** The generator holds feedback records in memory during simulation. At session end, all records are written locally as `{YYYYMMDD}_{session_id}_{loop_num}_{run_id}.jsonl` and then uploaded to Chameleon Object Storage. This avoids concurrent write conflicts when multiple sessions run in parallel, and allows the retrain pipeline to filter by date prefix.
 
 **Written by:** Data generator (production simulation script)
 **Versioned by:** Each session gets its own immutable file; no overwriting
@@ -206,5 +207,5 @@ Synthetic data is generated inside Pipeline 1 and mixed directly into `train.par
 | Pipeline | Trigger | Input | Output | Location |
 |----------|---------|-------|--------|----------|
 | Pipeline 1: Ingestion + Feature | One-shot | XITE download | `raw/` + `processed/` | `data/pipelines/pipeline1_initial/` |
-| Pipeline 2: Daily Retrain | Daily (or manual) | `raw/xite_msd.parquet` + `feedback/*.jsonl` | `retrain/v{date}/` | `data/pipelines/pipeline2_retrain/` |
+| Pipeline 2: Daily Retrain | Daily (or manual) | `processed/train.parquet` + `processed/production.parquet` + `feedback/{date}_*.jsonl` | `retrain/v{date}/` | `data/pipelines/pipeline2_retrain/` |
 | Data Generator | Manual simulation run | `processed/production.parquet` | `feedback/{YYYYMMDD}_{session_id}.jsonl` | `data/pipelines/generator/` |

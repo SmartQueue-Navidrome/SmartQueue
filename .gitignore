@@ -218,4 +218,6 @@ XITE-Million-Sessions-Dataset/
 # Pipeline outputs
 data/processed/
 data/raw/
+data/feedback/
 /tmp/smartqueue/
+data/retrain/
