@@ -1,0 +1,39 @@
+---
+# Pre-Kubernetes setup for all nodes
+# Based on Lab 2 & Lab 3 patterns
+
+- name: Pre-K8S configuration (all nodes)
+  hosts: all
+  become: true
+  tasks:
+
+    - name: Stop and disable firewalld
+      service:
+        name: firewalld
+        state: stopped
+        enabled: false
+      ignore_errors: true
+
+    - name: Load br_netfilter kernel module
+      modprobe:
+        name: br_netfilter
+        state: present
+
+    - name: Ensure br_netfilter loads on boot
+      copy:
+        content: "br_netfilter"
+        dest: /etc/modules-load.d/br_netfilter.conf
+
+    - name: Set kernel parameters for K8S networking
+      sysctl:
+        name: "{{ item.key }}"
+        value: "{{ item.value }}"
+        sysctl_set: true
+        reload: true
+      loop:
+        - { key: "net.bridge.bridge-nf-call-iptables", value: "1" }
+        - { key: "net.bridge.bridge-nf-call-ip6tables", value: "1" }
+        - { key: "net.ipv4.ip_forward", value: "1" }
+
+    # Docker and registry are installed in post_k8s.yaml
+    # (kubespray removes Docker, so we reinstall after K8S is up)

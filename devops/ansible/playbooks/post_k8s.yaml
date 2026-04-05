@@ -1,0 +1,78 @@
+---
+# Post-Kubernetes setup
+# Run after Kubespray cluster.yml completes
+# Based on Lab 2 & Lab 3 patterns
+
+- name: Post-K8S configuration
+  hosts: control_plane
+  become: true
+  tasks:
+
+    - name: Copy kubeconfig to cc user
+      shell: |
+        cp -R /root/.kube /home/cc/.kube
+        chown -R cc:cc /home/cc/.kube
+      args:
+        creates: /home/cc/.kube/config
+
+- name: Install Docker CLI and registry (kubespray uses containerd, but we need docker for building images)
+  hosts: control_plane
+  become: true
+  tasks:
+
+    - name: Add Docker apt repo
+      shell: |
+        install -m 0755 -d /etc/apt/keyrings
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+        chmod a+r /etc/apt/keyrings/docker.asc
+        echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable" > /etc/apt/sources.list.d/docker.list
+        apt-get -qq update
+      args:
+        creates: /etc/apt/sources.list.d/docker.list
+
+    - name: Install Docker CE (skip containerd.io to avoid conflict)
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - docker-buildx-plugin
+        state: present
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    - name: Configure Docker daemon (insecure registry)
+      copy:
+        content: |
+          {
+            "insecure-registries": ["node1:5000", "192.168.1.11:5000"]
+          }
+        dest: /etc/docker/daemon.json
+
+    - name: Start and enable Docker
+      service:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Run Docker registry container
+      shell: docker run -d --name registry --restart=always -p 5000:5000 registry:2
+      args:
+        creates: /var/lib/docker
+
+- name: Apply K8S resources
+  hosts: control_plane
+  become: false
+  tasks:
+
+    - name: Copy K8S manifests to node1
+      copy:
+        src: "{{ playbook_dir }}/../../k8s/"
+        dest: /home/cc/k8s/
+        owner: cc
+        group: cc
+
+    - name: Create namespaces
+      command: kubectl apply -f /home/cc/k8s/namespaces.yaml
+
+    - name: Create PersistentVolumes
+      command: kubectl apply -f /home/cc/k8s/storage/persistent-volumes.yaml

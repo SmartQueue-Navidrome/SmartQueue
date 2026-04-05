@@ -1,0 +1,43 @@
+# K8S Job equivalent for data pipeline container
+# Dockerfile: TBD by Data team member
+# This template shows the K8S equivalent for the container enumeration table
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smartqueue-data-pipeline
+  namespace: smartqueue-prod
+  labels:
+    app: smartqueue-data
+spec:
+  backoffLimit: 1
+  template:
+    metadata:
+      labels:
+        app: smartqueue-data
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: data-pipeline
+          image: node1:5000/smartqueue-data:v1
+          env:
+            # Chameleon native object storage at CHI@TACC
+            - name: S3_ENDPOINT_URL
+              value: https://chi.tacc.chameleoncloud.org:7480
+            - name: S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_ACCESS_KEY
+            - name: S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_SECRET_KEY
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
