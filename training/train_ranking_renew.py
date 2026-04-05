@@ -59,8 +59,6 @@ def load_and_prepare_data(cfg: dict) -> tuple:
         needed_cols = [
             "session_id",
             "is_engaged",
-            "session_order",
-            "video_order",
             "release_year",
             "context_segment",
             "genre_encoded",
@@ -70,8 +68,6 @@ def load_and_prepare_data(cfg: dict) -> tuple:
             "user_watch_time_avg",
         ]
         feature_cols = [
-            "session_order",
-            "video_order",
             "release_year",
             "context_segment",
             "genre_encoded",
