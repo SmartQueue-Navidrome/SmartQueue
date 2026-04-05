@@ -20,7 +20,7 @@ spec:
       containers:
         - name: training
           image: node1:5000/smartqueue-training:v1
-          command: ["python", "train_ranking.py", "--config", "/app/configs/stage_b_lgbm_v1.yaml"]
+          command: ["python", "train_ranking_renew.py", "--config", "/app/configs/stage_b_lgbm_v4.yaml"]
           env:
             - name: MLFLOW_TRACKING_URI
               value: http://mlflow.smartqueue-prod.svc.cluster.local:5000
