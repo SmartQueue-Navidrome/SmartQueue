@@ -1,0 +1,13 @@
+{
+  "option": "lightgbm_mlflow_concurrent",
+  "host": "http://fastapi_lgbm:8000",
+  "model_path": "runs:/b5bc4918ef0b41ff80844a52be538398/model",
+  "model_version": "lightgbm_mlflow",
+  "uvicorn_workers": "1",
+  "typical_users": "10",
+  "typical_spawn_rate": "2",
+  "typical_runtime": "5m",
+  "peak_users": "30",
+  "peak_spawn_rate": "5",
+  "peak_runtime": "5m"
+}
