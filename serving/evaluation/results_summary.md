@@ -16,3 +16,10 @@
 - No GPU, no swap
 
 
+
+## Notebook 6 - Sequential vs Concurrent (FastAPI direct benchmark)
+
+| Test | p50 | p95 | p99 | Throughput | Errors |
+|------|-----|-----|-----|------------|--------|
+| Sequential (100 requests, 1 worker) | 3.49ms | 6.94ms | 8.35ms | 242.88 req/sec | 0 |
+| Concurrent (1000 requests, 16 workers) | 42.06ms | 73.25ms | 96.52ms | 321.07 req/sec | 0 |
