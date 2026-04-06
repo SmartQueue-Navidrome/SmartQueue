@@ -12,6 +12,26 @@ OPTIONS = [
 ]
 
 
+def discover_lightgbm_options():
+    results_dir = "results"
+    if not os.path.isdir(results_dir):
+        return []
+    return sorted(
+        name for name in os.listdir(results_dir)
+        if name.startswith("lightgbm") and os.path.isdir(os.path.join(results_dir, name))
+    )
+
+
+def discover_rayserve_options():
+    results_dir = "results"
+    if not os.path.isdir(results_dir):
+        return []
+    return sorted(
+        name for name in os.listdir(results_dir)
+        if name.startswith("rayserve") and os.path.isdir(os.path.join(results_dir, name))
+    )
+
+
 def read_stats(option, prefix):
     path = f"results/{option}/{prefix}_stats.csv"
     if not os.path.exists(path):
@@ -30,7 +50,7 @@ def read_stats(option, prefix):
 
 
 rows = []
-for opt in OPTIONS:
+for opt in OPTIONS + discover_lightgbm_options() + discover_rayserve_options():
     peak = read_stats(opt, "peak")
     rows.append(f"| {opt} | compute_skylake | {peak['p50']} | {peak['p95']} | {peak['rps']} | {peak['err']} |")
 
