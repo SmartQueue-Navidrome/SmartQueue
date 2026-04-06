@@ -1,0 +1,20 @@
+{
+    "session_id": "766d672f-4fdf-4aab-b102-bdb25843de26",
+    "ranked_songs": [
+        {
+            "video_id": "901a48d1-c08f-4de9-b3f3-a7241476d0c5",
+            "engagement_probability": 1.0,
+            "rank": 1
+        },
+        {
+            "video_id": "56b983e0-a337-49df-96bb-594e42b00511",
+            "engagement_probability": 1.0,
+            "rank": 2
+        },
+        {
+            "video_id": "c8567dd0-8bb2-4dba-809b-d35f2dabcf61",
+            "engagement_probability": 0.9999999403953552,
+            "rank": 3
+        }
+    ]
+}
