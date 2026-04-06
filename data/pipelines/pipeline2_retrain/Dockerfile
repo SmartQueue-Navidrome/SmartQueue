@@ -4,4 +4,5 @@ COPY pipeline2_retrain/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY utils/s3.py ./utils/s3.py
 COPY pipeline2_retrain/retrain.py .
+COPY pipeline2_retrain/feedback_checks.py .
 CMD ["python", "retrain.py"]

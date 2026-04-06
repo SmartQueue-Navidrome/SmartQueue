@@ -137,9 +137,9 @@ ObjStore_proj13/
 | `metadata.json` | Date, feedback sessions included, row counts, label distribution |
 
 **How feedback rows are incorporated:**
-1. Read all `feedback/{YYYYMMDD}_{session_id}.jsonl` files matching today's date prefix
-2. Join on `video_id` against `raw/xite_msd.parquet` to recover video features (genre, release_year, etc.)
-3. Run same feature engineering as Pipeline 1
+1. Read all `feedback/{YYYYMMDD}_{session_id}_{loop_num}_{run_id}.jsonl` files matching today's date prefix
+2. Join on `video_id` against `processed/production.parquet` to recover video features (genre, release_year, etc.) and pre-computed user profiles
+3. Re-compute user features per session (pre-stored profile + actual feedback events)
 4. Merge with original `processed/train.parquet`
 5. Write to `retrain/v{date}/train.parquet`
 
@@ -202,10 +202,31 @@ Synthetic data is generated inside Pipeline 1 and mixed directly into `train.par
 
 ---
 
-## 6. Data Pipeline Summary
+## 6. Data Quality Checks (Great Expectations)
+
+Pipeline 2 integrates [Great Expectations](https://greatexpectations.io) to validate feedback data before it enters the retrain pipeline. This prevents corrupted or malformed feedback from polluting the training set.
+
+**Why it improves the design:** In a live system, feedback is written by a separate service (the data generator) and could contain invalid values due to bugs, schema drift, or partial failures. Without quality gates, bad feedback would silently degrade model quality over time. Great Expectations provides an explicit contract on the feedback schema that is checked before every retrain.
+
+**Checks run on feedback data (`feedback_checks.py`):**
+
+| Check | Rule |
+|-------|------|
+| Row count | At least 1 row |
+| `session_id` | No nulls |
+| `video_id` | No nulls |
+| `rank_position` | No nulls |
+| `actual_is_engaged` | Values must be 0 or 1 |
+| `predicted_engagement_prob` | Values between 0.0 and 1.0 |
+
+If any check fails, the retrain pipeline aborts with an error before touching the training data.
+
+---
+
+## 7. Data Pipeline Summary
 
 | Pipeline | Trigger | Input | Output | Location |
 |----------|---------|-------|--------|----------|
 | Pipeline 1: Ingestion + Feature | One-shot | XITE download | `raw/` + `processed/` | `data/pipelines/pipeline1_initial/` |
 | Pipeline 2: Daily Retrain | Daily (or manual) | `processed/train.parquet` + `processed/production.parquet` + `feedback/{date}_*.jsonl` | `retrain/v{date}/` | `data/pipelines/pipeline2_retrain/` |
-| Data Generator | Manual simulation run | `processed/production.parquet` | `feedback/{YYYYMMDD}_{session_id}.jsonl` | `data/pipelines/generator/` |
+| Data Generator | Manual simulation run | `processed/production.parquet` | `feedback/{YYYYMMDD}_{session_id}_{loop_num}_{run_id}.jsonl` | `data/pipelines/generator/` |

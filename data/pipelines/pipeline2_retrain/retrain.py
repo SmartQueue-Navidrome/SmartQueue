@@ -29,6 +29,8 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
+from feedback_checks import run_checks
+
 sys.path.insert(0, str(Path(__file__).resolve().parent / "utils"))
 import s3
 
@@ -165,6 +167,11 @@ def main():
     t = time.perf_counter()
     feedback_df = load_feedback(feedback_dir, date_str)
     print(f"[1/4] Done in {time.perf_counter()-t:.1f}s")
+
+    # 1b. Data quality checks
+    print("\n[1b] Running data quality checks ...")
+    run_checks(feedback_df)
+    print(f"[1b] Done in {time.perf_counter()-t:.1f}s")
 
     # 2. Load production.parquet
     print("\n[2/4] Loading production.parquet ...")
