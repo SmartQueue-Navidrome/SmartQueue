@@ -1,0 +1,59 @@
+version: "3.9"
+
+services:
+  fastapi_lgbm:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.lightgbm
+    container_name: fastapi_lgbm
+    ports:
+      - "8000:8000"
+    environment:
+      - MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI:-http://129.114.25.107:8000}
+      - MODEL_URI=${MODEL_URI:-runs:/b5bc4918ef0b41ff80844a52be538398/model}
+      - MODEL_VERSION=${MODEL_VERSION:-lightgbm_mlflow}
+      - UVICORN_PORT=8000
+      - UVICORN_WORKERS=${UVICORN_WORKERS:-1}
+    restart: unless-stopped
+
+  jupyter:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.jupyter
+    container_name: jupyter
+    ports:
+      - "8888:8888"
+    volumes:
+      - ../workspace:/home/jovyan/work
+      - ../models:/home/jovyan/work/models
+    environment:
+      - JUPYTER_ENABLE_LAB=yes
+    restart: unless-stopped
+
+  eval:
+    profiles: ["eval"]
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.eval
+    working_dir: /eval
+    depends_on:
+      - fastapi_lgbm
+    volumes:
+      - ../evaluation:/eval
+      - ../../shared:/shared:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - HOST=http://fastapi_lgbm:8000
+      - SHARED_DIR=/shared
+      - CAPTURE_CONTAINER=fastapi_lgbm
+      - MODEL_PATH_USED=${MODEL_URI:-runs:/b5bc4918ef0b41ff80844a52be538398/model}
+      - MODEL_VERSION_USED=${MODEL_VERSION:-lightgbm_mlflow}
+      - UVICORN_WORKERS_USED=${UVICORN_WORKERS:-1}
+      - TYPICAL_USERS=${TYPICAL_USERS:-10}
+      - TYPICAL_SPAWN_RATE=${TYPICAL_SPAWN_RATE:-2}
+      - TYPICAL_RUNTIME=${TYPICAL_RUNTIME:-5m}
+      - PEAK_USERS=${PEAK_USERS:-30}
+      - PEAK_SPAWN_RATE=${PEAK_SPAWN_RATE:-5}
+      - PEAK_RUNTIME=${PEAK_RUNTIME:-5m}
+      - CAPTURE_INTERVAL=${CAPTURE_INTERVAL:-5}
+    command: ["sleep", "infinity"]

@@ -1,0 +1,18 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY lightgbm_app/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY lightgbm_app/app.py .
+COPY lightgbm_app/start.sh .
+RUN chmod +x /app/start.sh
+
+ENV MLFLOW_TRACKING_URI=http://129.114.25.107:8000
+ENV MODEL_URI=runs:/b5bc4918ef0b41ff80844a52be538398/model
+ENV MODEL_VERSION=lightgbm_mlflow
+
+EXPOSE 8000
+
+CMD ["/app/start.sh"]
