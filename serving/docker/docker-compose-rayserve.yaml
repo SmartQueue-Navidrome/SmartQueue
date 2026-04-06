@@ -1,0 +1,46 @@
+version: "3.9"
+
+services:
+  rayserve:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.rayserve
+    container_name: rayserve
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../model_artifacts:/app/model_artifacts:ro
+    environment:
+      - MODEL_PATH=${MODEL_PATH:-/app/model_artifacts/smartqueue_ranker.onnx}
+      - MODEL_VERSION=${MODEL_VERSION:-rayserve_baseline}
+      - RAY_SERVE_PORT=8000
+      - RAY_SERVE_REPLICAS=${RAY_SERVE_REPLICAS:-2}
+    restart: unless-stopped
+
+  eval:
+    profiles: ["eval"]
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.eval
+    working_dir: /eval
+    depends_on:
+      - rayserve
+    volumes:
+      - ../evaluation:/eval
+      - ../../shared:/shared:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - HOST=http://rayserve:8000
+      - SHARED_DIR=/shared
+      - CAPTURE_CONTAINER=rayserve
+      - MODEL_PATH_USED=${MODEL_PATH:-/app/model_artifacts/smartqueue_ranker.onnx}
+      - MODEL_VERSION_USED=${MODEL_VERSION:-rayserve_baseline}
+      - UVICORN_WORKERS_USED=rayserve
+      - TYPICAL_USERS=${TYPICAL_USERS:-10}
+      - TYPICAL_SPAWN_RATE=${TYPICAL_SPAWN_RATE:-2}
+      - TYPICAL_RUNTIME=${TYPICAL_RUNTIME:-5m}
+      - PEAK_USERS=${PEAK_USERS:-30}
+      - PEAK_SPAWN_RATE=${PEAK_SPAWN_RATE:-5}
+      - PEAK_RUNTIME=${PEAK_RUNTIME:-5m}
+      - CAPTURE_INTERVAL=${CAPTURE_INTERVAL:-5}
+    command: ["sleep", "infinity"]

@@ -1,0 +1,18 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY rayserve/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY rayserve /app/rayserve
+RUN chmod +x /app/rayserve/start.sh
+
+ENV MODEL_PATH=/app/model_artifacts/smartqueue_ranker.onnx
+ENV MODEL_VERSION=rayserve_baseline
+ENV RAY_SERVE_PORT=8000
+ENV RAY_SERVE_REPLICAS=2
+
+EXPOSE 8000
+
+CMD ["/app/rayserve/start.sh"]

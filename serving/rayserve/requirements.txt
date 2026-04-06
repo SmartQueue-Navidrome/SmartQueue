@@ -1,0 +1,4 @@
+ray[serve]==2.20.0
+onnxruntime==1.18.0
+numpy==1.26.4
+pydantic==2.7.1
