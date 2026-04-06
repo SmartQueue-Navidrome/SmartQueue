@@ -5,11 +5,13 @@ OPTIONS = [
     "onnx_baseline",
     "onnx_graph_opt",
     "onnx_dynamic_int8",
+    "onnx_dynamic_int8_concurrent",
     "onnx_static_int8_agg",
     "onnx_static_int8_cons",
     "fastapi_sequential",
     "fastapi_concurrent",
 ]
+
 
 
 def discover_lightgbm_options():
