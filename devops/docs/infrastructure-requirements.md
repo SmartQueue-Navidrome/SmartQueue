@@ -19,8 +19,8 @@
 
 | Volume | Size | Attached To | Mount Path | Purpose |
 |--------|------|-------------|------------|---------|
-| vol-navidrome-projXX | 5 GiB | node1 | /mnt/smartqueue-data/navidrome | Navidrome DB + music |
-| vol-postgres-projXX | 5 GiB | node1 | /mnt/smartqueue-data/postgres | MLflow metadata |
+| vol-navidrome-proj13 | 5 GiB | node1 | /mnt/smartqueue-data/navidrome | Navidrome DB + music |
+| vol-postgres-proj13 | 5 GiB | node1 | /mnt/smartqueue-data/postgres | MLflow metadata |
 
 ### Object Storage (Chameleon native S3 at CHI@TACC)
 
