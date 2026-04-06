@@ -3,12 +3,9 @@ from typing import List
 
 import numpy as np
 import onnxruntime as ort
-from pydantic import BaseModel, ValidationError
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 from ray import serve
-from starlette.applications import Starlette
-from starlette.requests import Request
-from starlette.responses import JSONResponse
-from starlette.routing import Route
 
 
 class CandidateSong(BaseModel):
@@ -59,33 +56,7 @@ def build_song_vector(song: CandidateSong) -> np.ndarray:
     return song_vec
 
 
-async def health(request: Request) -> JSONResponse:
-    service = request.app.state.service
-    return JSONResponse({"status": "ok", "model_version": service.model_version})
-
-
-async def queue(request: Request) -> JSONResponse:
-    service = request.app.state.service
-    try:
-        payload = await request.json()
-        req = QueueRequest.model_validate(payload)
-    except ValidationError as exc:
-        return JSONResponse({"detail": exc.errors()}, status_code=422)
-
-    if not req.candidate_songs:
-        return JSONResponse({"detail": "candidate_songs must not be empty"}, status_code=422)
-
-    response = service.rank_request(req)
-    return JSONResponse(response.model_dump())
-
-
-routes = [
-    Route("/health", health, methods=["GET"]),
-    Route("/queue", queue, methods=["POST"]),
-    Route("/rank", queue, methods=["POST"]),
-]
-
-app = Starlette(routes=routes)
+app = FastAPI(title="SmartQueue Ray Serve", version=os.environ.get("MODEL_VERSION", "1.0.0-ray"))
 
 
 @serve.deployment(ray_actor_options={"num_cpus": 1})
@@ -99,8 +70,6 @@ class RankingService:
         opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_EXTENDED
         self.session = ort.InferenceSession(model_path, opts, providers=["CPUExecutionProvider"])
         self.input_name = self.session.get_inputs()[0].name
-
-        app.state.service = self
 
     def rank_request(self, req: QueueRequest) -> QueueResponse:
         user_vec = build_user_vector(req.user_features)
@@ -118,3 +87,17 @@ class RankingService:
             item.rank = idx
 
         return QueueResponse(session_id=req.session_id, ranked_songs=ranked)
+
+    @app.get("/health")
+    def health(self):
+        return {"status": "ok", "model_version": self.model_version}
+
+    @app.post("/queue", response_model=QueueResponse)
+    def queue(self, req: QueueRequest):
+        if not req.candidate_songs:
+            raise HTTPException(status_code=422, detail="candidate_songs must not be empty")
+        return self.rank_request(req)
+
+    @app.post("/rank", response_model=QueueResponse)
+    def rank(self, req: QueueRequest):
+        return self.queue(req)
