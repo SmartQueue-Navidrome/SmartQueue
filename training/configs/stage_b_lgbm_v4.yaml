@@ -1,10 +1,9 @@
 # Stage B v4: LightGBM with user features from Pipeline 1
-# Uses processed/train.parquet which includes:
+# Uses processed train.parquet which includes:
 #   user_skip_rate, user_favorite_genre_encoded, user_watch_time_avg
 # These user features better reflect real serving behavior.
 model_type: "lightgbm"
 data_path: "/data/train.parquet"
-use_processed: true
 max_samples: 200000
 random_seed: 42
 train_ratio: 0.8
