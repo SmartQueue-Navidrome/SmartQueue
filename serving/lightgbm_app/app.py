@@ -119,6 +119,25 @@ class SessionActiveResponse(BaseModel):
     sessions: List[str]
 
 
+class RankedSongDetail(BaseModel):
+    rank: int
+    video_id: str
+    genre_encoded: int
+    engagement_probability: float
+
+
+class SessionDetail(BaseModel):
+    session_id: str
+    user_features: UserFeatures
+    ranked_songs: List[RankedSongDetail]
+    started_at: str
+
+
+class ActiveSessionsResponse(BaseModel):
+    count: int
+    sessions: List[SessionDetail]
+
+
 def build_feature_frame(req: QueueRequest) -> pd.DataFrame:
     rows = []
     for song in req.candidate_songs:
@@ -165,16 +184,9 @@ def queue(req: QueueRequest):
 
         feature_frame = build_feature_frame(req)
         scores = model.predict(feature_frame)
-        with session_lock:
-            active_sessions[req.session_id] = {
-                "user_id": None,
-                "started_at": active_sessions.get(req.session_id, {}).get("started_at")
-                or datetime.now(timezone.utc).isoformat(),
-                "last_seen_at": datetime.now(timezone.utc).isoformat(),
-            }
-            ACTIVE_SESSIONS_GAUGE.set(len(active_sessions))
 
         ranked = []
+        ranked_details = []
         for song, score in zip(req.candidate_songs, scores):
             score_val = float(score)
             PREDICTION_SCORE.observe(score_val)
@@ -183,9 +195,32 @@ def queue(req: QueueRequest):
             ranked.append(
                 RankedSong(video_id=song.video_id, engagement_probability=score_val, rank=0)
             )
+            ranked_details.append({
+                "video_id": song.video_id,
+                "genre_encoded": song.genre_encoded,
+                "engagement_probability": score_val,
+                "rank": 0,
+            })
         ranked.sort(key=lambda item: item.engagement_probability, reverse=True)
-        for idx, item in enumerate(ranked, start=1):
+        ranked_details.sort(key=lambda item: item["engagement_probability"], reverse=True)
+        for idx, (item, detail) in enumerate(zip(ranked, ranked_details), start=1):
             item.rank = idx
+            detail["rank"] = idx
+
+        with session_lock:
+            existing_start = active_sessions.get(req.session_id, {}).get("started_at")
+            active_sessions[req.session_id] = {
+                "session_id": req.session_id,
+                "user_features": {
+                    "user_skip_rate": req.user_features.user_skip_rate,
+                    "user_favorite_genre_encoded": req.user_features.user_favorite_genre_encoded,
+                    "user_watch_time_avg": req.user_features.user_watch_time_avg,
+                },
+                "ranked_songs": ranked_details,
+                "started_at": existing_start or datetime.now(timezone.utc).isoformat(),
+                "last_seen_at": datetime.now(timezone.utc).isoformat(),
+            }
+            ACTIVE_SESSIONS_GAUGE.set(len(active_sessions))
 
         return QueueResponse(session_id=req.session_id, ranked_songs=ranked)
     except HTTPException:
@@ -215,19 +250,16 @@ def session_start(req: SessionStartRequest):
     return SessionResponse(session_id=req.session_id, active=True, started_at=now)
 
 
-@app.post("/session/end", response_model=SessionResponse)
+class SessionEndResponse(BaseModel):
+    ok: bool
+
+
+@app.post("/session/end", response_model=SessionEndResponse)
 def session_end(req: SessionEndRequest):
-    now = datetime.now(timezone.utc).isoformat()
     with session_lock:
-        session = active_sessions.pop(req.session_id, None)
-    if session is None:
-        raise HTTPException(status_code=404, detail="session not found")
-    return SessionResponse(
-        session_id=req.session_id,
-        active=False,
-        started_at=session.get("started_at"),
-        ended_at=now,
-    )
+        active_sessions.pop(req.session_id, None)
+        ACTIVE_SESSIONS_GAUGE.set(len(active_sessions))
+    return SessionEndResponse(ok=True)
 
 
 @app.get("/session/active", response_model=SessionActiveResponse)
@@ -235,3 +267,33 @@ def session_active():
     with session_lock:
         ids = sorted(active_sessions.keys())
     return SessionActiveResponse(active_count=len(ids), sessions=ids)
+
+
+@app.get("/active-sessions", response_model=ActiveSessionsResponse)
+def active_sessions_detailed():
+    """Return detailed info for all active sessions (for Navidrome dashboard)."""
+    with session_lock:
+        session_list = []
+        for sid in sorted(active_sessions.keys()):
+            data = active_sessions[sid]
+            session_list.append(
+                SessionDetail(
+                    session_id=sid,
+                    user_features=UserFeatures(
+                        user_skip_rate=data["user_features"]["user_skip_rate"],
+                        user_favorite_genre_encoded=data["user_features"]["user_favorite_genre_encoded"],
+                        user_watch_time_avg=data["user_features"]["user_watch_time_avg"],
+                    ),
+                    ranked_songs=[
+                        RankedSongDetail(
+                            rank=rs["rank"],
+                            video_id=rs["video_id"],
+                            genre_encoded=rs["genre_encoded"],
+                            engagement_probability=rs["engagement_probability"],
+                        )
+                        for rs in data["ranked_songs"]
+                    ],
+                    started_at=data["started_at"],
+                )
+            )
+    return ActiveSessionsResponse(count=len(session_list), sessions=session_list)
