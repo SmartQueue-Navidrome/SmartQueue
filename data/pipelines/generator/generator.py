@@ -105,7 +105,18 @@ def upload_feedback(local_path: Path, s3_key: str):
     log.info(f"S3 uploaded → {s3_key}")
 
 
-# ── queue call ────────────────────────────────────────────────────────────────
+# ── queue / session calls ─────────────────────────────────────────────────────
+
+def call_session_end(session_id: str):
+    """Notify serving that a session has finished."""
+    if not QUEUE_ENDPOINT:
+        return
+    try:
+        base = QUEUE_ENDPOINT.rsplit("/queue", 1)[0]
+        requests.post(f"{base}/session/end", json={"session_id": session_id}, timeout=5)
+    except Exception as e:
+        log.warning(f"session/end failed for {session_id[:8]}... ({e})")
+
 
 def call_queue(session_id: str, user_features: dict, candidates: list[dict]) -> list[dict]:
     """Call /queue endpoint or fall back to mock ranking."""
@@ -217,6 +228,9 @@ async def process_session(
         # Upload to S3
         s3_key = f"feedback/{filename}"
         await loop.run_in_executor(None, upload_feedback, local_path, s3_key)
+
+        # Notify serving that this session is done
+        await loop.run_in_executor(None, call_session_end, session_id)
 
         log.info(f"[loop {loop_num}] session {session_id[:8]}... done → {len(records)} records saved to {filename}")
 

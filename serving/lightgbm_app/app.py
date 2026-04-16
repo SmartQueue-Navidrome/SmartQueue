@@ -27,15 +27,32 @@ FEATURE_COLUMNS = [
     "user_watch_time_avg",
 ]
 
+MOCK_MODE = os.environ.get("MOCK_MODE", "false").lower() == "true"
+
+class _MockModel:
+    """Returns random scores — used when MOCK_MODE=true or MLflow is unreachable."""
+    def predict(self, df):
+        import random
+        return [round(random.random(), 4) for _ in range(len(df))]
+
 mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 active_model_uri = MODEL_URI
-try:
-    active_model_uri = f"models:/{MODEL_NAME}/{MODEL_STAGE}"
-    model = mlflow.pyfunc.load_model(active_model_uri)
-except Exception:
-    # Backward-compatible fallback while registry wiring is in progress.
-    active_model_uri = MODEL_URI
-    model = mlflow.pyfunc.load_model(active_model_uri)
+model = None
+
+if MOCK_MODE:
+    model = _MockModel()
+    active_model_uri = "mock"
+else:
+    try:
+        active_model_uri = f"models:/{MODEL_NAME}/{MODEL_STAGE}"
+        model = mlflow.pyfunc.load_model(active_model_uri)
+    except Exception:
+        try:
+            active_model_uri = MODEL_URI
+            model = mlflow.pyfunc.load_model(active_model_uri)
+        except Exception as e:
+            print(f"[warn] MLflow unavailable ({e}). Set MOCK_MODE=true to run without MLflow.")
+            raise
 
 app = FastAPI(title="SmartQueue LightGBM Serving", version=MODEL_VERSION)
 session_lock = threading.Lock()
