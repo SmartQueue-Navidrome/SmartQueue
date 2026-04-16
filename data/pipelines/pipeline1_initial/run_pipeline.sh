@@ -45,6 +45,10 @@ echo "--- Step 2: Feature Engineering ---"
 $PYTHON "$SCRIPT_DIR/feature_engineering.py" --output-dir "$OUTPUT_DIR"
 
 echo ""
+echo "--- Step 2.5: Ingestion Quality Checks ---"
+$PYTHON "$SCRIPT_DIR/ingestion_checks.py" --output-dir "$OUTPUT_DIR"
+
+echo ""
 echo "--- Step 3: Upload to S3 ---"
 $PYTHON "$SCRIPT_DIR/upload_data.py" --data-dir "$OUTPUT_DIR"
 
