@@ -1,0 +1,65 @@
+version: "3.9"
+
+services:
+  fastapi_lgbm:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.lightgbm
+    container_name: fastapi_lgbm
+    ports:
+      - "8000:8000"
+    environment:
+      - MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI:-http://129.114.25.107:8000}
+      - MODEL_URI=${MODEL_URI:-runs:/b5bc4918ef0b41ff80844a52be538398/model}
+      - MODEL_VERSION=${MODEL_VERSION:-lightgbm_mlflow}
+      - UVICORN_PORT=8000
+      - UVICORN_WORKERS=${UVICORN_WORKERS:-1}
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=7d"
+    depends_on:
+      - fastapi_lgbm
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:10.4.1
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  jupyter:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.jupyter
+    container_name: jupyter
+    ports:
+      - "8888:8888"
+    volumes:
+      - ../workspace:/home/jovyan/work
+      - ../models:/home/jovyan/work/models
+    environment:
+      - JUPYTER_ENABLE_LAB=yes
+    restart: unless-stopped
+
+volumes:
+  prometheus_data:
+  grafana_data:
