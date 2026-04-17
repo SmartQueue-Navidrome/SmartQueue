@@ -17,6 +17,34 @@ spec:
           - name: app-name
           - name: model-uri
           - name: model-version
+      steps:
+        - - name: argocd-sync
+            template: argocd-sync
+            arguments:
+              parameters:
+                - name: app-name
+                  value: "{{inputs.parameters.app-name}}"
+                - name: model-uri
+                  value: "{{inputs.parameters.model-uri}}"
+                - name: model-version
+                  value: "{{inputs.parameters.model-version}}"
+        - - name: audit-log
+            template: audit-log
+            arguments:
+              parameters:
+                - name: app-name
+                  value: "{{inputs.parameters.app-name}}"
+                - name: model-version
+                  value: "{{inputs.parameters.model-version}}"
+                - name: action
+                  value: "DEPLOY"
+
+    - name: argocd-sync
+      inputs:
+        parameters:
+          - name: app-name
+          - name: model-uri
+          - name: model-version
       container:
         image: argoproj/argocd:v2.12.0
         command: [sh, -c]
@@ -39,3 +67,39 @@ spec:
               secretKeyRef:
                 name: argocd-initial-admin-secret
                 key: password
+
+    - name: audit-log
+      inputs:
+        parameters:
+          - name: app-name
+          - name: model-version
+          - name: action
+      container:
+        image: bitnami/kubectl:1.30
+        command: [sh, -c]
+        args:
+          - |
+            TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+            # Determine namespace from app name
+            case "{{inputs.parameters.app-name}}" in
+              smartqueue-prod)    NS="smartqueue-prod" ;;
+              smartqueue-staging) NS="smartqueue-staging" ;;
+              smartqueue-canary)  NS="smartqueue-canary" ;;
+              *)                  NS="smartqueue-prod" ;;
+            esac
+            ENV=$(echo $NS | sed 's/smartqueue-//')
+
+            ENTRY="$TIMESTAMP | {{inputs.parameters.action}} | $ENV | {{inputs.parameters.model-version}} | triggered by ct-pipeline"
+
+            EXISTING=$(kubectl get configmap model-audit-log -n smartqueue-prod \
+              -o jsonpath='{.data.log}' 2>/dev/null || echo "")
+
+            if [ -z "$EXISTING" ]; then
+              kubectl create configmap model-audit-log -n smartqueue-prod \
+                --from-literal=log="$ENTRY" --dry-run=client -o yaml | kubectl apply -f -
+            else
+              NEW_LOG=$(printf '%s\n%s' "$EXISTING" "$ENTRY")
+              kubectl create configmap model-audit-log -n smartqueue-prod \
+                --from-literal=log="$NEW_LOG" --dry-run=client -o yaml | kubectl apply -f -
+            fi
+            echo "Audit logged: $ENTRY"

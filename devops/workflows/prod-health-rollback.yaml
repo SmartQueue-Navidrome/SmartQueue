@@ -1,0 +1,84 @@
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: prod-health-rollback
+  namespace: argo
+spec:
+  schedules:
+    - "*/5 * * * *"
+  timezone: "UTC"
+  concurrencyPolicy: Forbid
+  workflowSpec:
+    entrypoint: check-and-rollback
+    serviceAccountName: argo-workflow-sa
+    templates:
+      - name: check-and-rollback
+        steps:
+          - - name: health-check
+              template: health-check
+          - - name: rollback
+              template: rollback
+              when: "{{steps.health-check.exitCode}} != 0"
+
+      - name: health-check
+        container:
+          image: curlimages/curl:8.5.0
+          command: [sh, -c]
+          args:
+            - |
+              echo "Checking prod serving health..."
+              FAILURES=0
+              for i in 1 2 3; do
+                STATUS=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 \
+                  http://smartqueue-serving.smartqueue-prod.svc.cluster.local:8000/health 2>/dev/null || echo "000")
+                if [ "$STATUS" != "200" ]; then
+                  FAILURES=$((FAILURES + 1))
+                  echo "Check $i: FAILED (status=$STATUS)"
+                else
+                  echo "Check $i: OK"
+                fi
+                sleep 5
+              done
+              if [ "$FAILURES" -ge 2 ]; then
+                echo "UNHEALTHY: $FAILURES/3 checks failed"
+                exit 1
+              fi
+              echo "HEALTHY: prod serving OK"
+
+      - name: rollback
+        container:
+          image: bitnami/kubectl:1.30
+          command: [sh, -c]
+          args:
+            - |
+              echo "=== AUTOMATED ROLLBACK TRIGGERED ==="
+              TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+              # Get current model version before rollback
+              CURRENT_VERSION=$(kubectl get deployment smartqueue-serving -n smartqueue-prod \
+                -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="MODEL_VERSION")].value}' 2>/dev/null || echo "unknown")
+              echo "Current model version: $CURRENT_VERSION"
+
+              # Rollback deployment to previous revision
+              kubectl rollout undo deployment/smartqueue-serving -n smartqueue-prod
+              kubectl rollout status deployment/smartqueue-serving -n smartqueue-prod --timeout=120s
+
+              # Get rolled-back model version
+              ROLLBACK_VERSION=$(kubectl get deployment smartqueue-serving -n smartqueue-prod \
+                -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="MODEL_VERSION")].value}' 2>/dev/null || echo "unknown")
+              echo "Rolled back to: $ROLLBACK_VERSION"
+
+              # Log to audit ConfigMap
+              EXISTING=$(kubectl get configmap model-audit-log -n smartqueue-prod -o jsonpath='{.data.log}' 2>/dev/null || echo "")
+              ENTRY="$TIMESTAMP | ROLLBACK | prod | $CURRENT_VERSION -> $ROLLBACK_VERSION | reason: health check failed (automated)"
+              echo "$ENTRY"
+
+              if [ -z "$EXISTING" ]; then
+                kubectl create configmap model-audit-log -n smartqueue-prod \
+                  --from-literal=log="$ENTRY" --dry-run=client -o yaml | kubectl apply -f -
+              else
+                NEW_LOG=$(printf '%s\n%s' "$EXISTING" "$ENTRY")
+                kubectl create configmap model-audit-log -n smartqueue-prod \
+                  --from-literal=log="$NEW_LOG" --dry-run=client -o yaml | kubectl apply -f -
+              fi
+              echo "Rollback complete, audit log updated"
