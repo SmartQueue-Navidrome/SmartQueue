@@ -144,6 +144,56 @@ def build_retrain_rows(feedback_df: pd.DataFrame, production_df: pd.DataFrame) -
     return pd.DataFrame(rows)
 
 
+# ── drift monitoring ─────────────────────────────────────────────────────────
+
+DRIFT_FEATURES = [
+    "user_skip_rate",
+    "user_favorite_genre_encoded",
+    "user_watch_time_avg",
+    "genre_encoded",
+]
+DRIFT_THRESHOLD = 0.20  # 20% deviation triggers warning
+
+
+def detect_drift(new_rows: pd.DataFrame, production_df: pd.DataFrame) -> dict:
+    """
+    Compare feature distributions between recent feedback and baseline (production.parquet).
+    Logs a warning if any feature mean deviates more than DRIFT_THRESHOLD from baseline.
+    Returns drift report dict (written to metadata.json).
+    """
+    print("  Drift monitoring:")
+    drift_report = {}
+    any_drift = False
+
+    for feat in DRIFT_FEATURES:
+        baseline_mean = production_df[feat].mean()
+        recent_mean   = new_rows[feat].mean()
+        if baseline_mean == 0:
+            diff_pct = 0.0
+        else:
+            diff_pct = abs(recent_mean - baseline_mean) / abs(baseline_mean)
+
+        drifted = diff_pct > DRIFT_THRESHOLD
+        status  = "⚠ DRIFT" if drifted else "✓"
+        print(f"    {status} {feat}: baseline={baseline_mean:.3f}  recent={recent_mean:.3f}  diff={diff_pct:.1%}")
+
+        drift_report[feat] = {
+            "baseline_mean": round(float(baseline_mean), 4),
+            "recent_mean":   round(float(recent_mean), 4),
+            "diff_pct":      round(float(diff_pct), 4),
+            "drifted":       bool(drifted),
+        }
+        if drifted:
+            any_drift = True
+
+    if any_drift:
+        print("  [WARN] Drift detected — model may need attention.")
+    else:
+        print("  No significant drift detected.")
+
+    return drift_report
+
+
 # ── compiled retrain dataset quality check ────────────────────────────────────
 
 RETRAIN_FEATURE_COLS = [
@@ -248,6 +298,10 @@ def main():
     _check_retrain_dataset(new_rows)
     print(f"[3b] Done in {time.perf_counter()-t:.1f}s")
 
+    # 3c. Drift monitoring
+    print("\n[3c] Drift monitoring ...")
+    drift_report = detect_drift(new_rows, production_df)
+
     # 4. Save retrain dataset (feedback only — no concat with original train)
     print("\n[4/4] Saving retrain dataset ...")
     t = time.perf_counter()
@@ -263,6 +317,7 @@ def main():
         "feedback_sessions": int(feedback_df["session_id"].nunique()),
         "total_rows":        int(len(new_rows)),
         "engaged_rate":      round(float(new_rows["is_engaged"].mean()), 4),
+        "drift":             drift_report,
     }
     with open(retrain_dir / "metadata.json", "w") as f:
         json.dump(metadata, f, indent=2)

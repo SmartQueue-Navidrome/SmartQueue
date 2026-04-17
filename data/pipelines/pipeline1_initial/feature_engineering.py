@@ -212,7 +212,11 @@ def generate_synthetic(feat_df: pd.DataFrame, n_extra: int, seed: int = RANDOM_S
     diff    = abs(orig_e - synth_e)
     print(f"  label dist — original: {orig_e:.3f}, synthetic: {synth_e:.3f}, diff: {diff:.3f}")
     if diff > 0.05:
-        print(f"  WARNING: diff {diff:.3f} > 0.05")
+        raise ValueError(
+            f"Synthetic label distribution check failed: "
+            f"diff {diff:.3f} > 0.05 (original={orig_e:.3f}, synthetic={synth_e:.3f}). "
+            "Aborting pipeline."
+        )
 
     return synth[FINAL_COLS]
 

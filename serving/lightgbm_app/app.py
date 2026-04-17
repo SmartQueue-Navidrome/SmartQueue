@@ -7,7 +7,9 @@ from typing import List, Optional
 import mlflow
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Request
-from pydantic import BaseModel
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 from starlette.responses import Response
 
@@ -82,20 +84,30 @@ PREDICTION_INVALID = Counter(
     "prediction_invalid_total",
     "Predictions outside [0,1] range",
 )
+INVALID_REQUEST_COUNT = Counter(
+    "invalid_request_total",
+    "Requests rejected due to invalid input (422)",
+)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    INVALID_REQUEST_COUNT.inc()
+    return JSONResponse(status_code=422, content={"detail": exc.errors()})
 
 
 class CandidateSong(BaseModel):
     video_id: str
-    release_year: int
-    context_segment: int
-    genre_encoded: int
-    subgenre_encoded: int
+    release_year: int = Field(..., ge=1900, le=2030)
+    context_segment: int = Field(..., ge=0)
+    genre_encoded: int = Field(..., ge=0, le=50)
+    subgenre_encoded: int = Field(..., ge=0, le=300)
 
 
 class UserFeatures(BaseModel):
-    user_skip_rate: float
-    user_favorite_genre_encoded: int
-    user_watch_time_avg: float
+    user_skip_rate: float = Field(..., ge=0.0, le=1.0)
+    user_favorite_genre_encoded: int = Field(..., ge=0, le=50)
+    user_watch_time_avg: float = Field(..., ge=0.0)
 
 
 class QueueRequest(BaseModel):
