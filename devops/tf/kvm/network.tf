@@ -108,5 +108,5 @@ resource "openstack_networking_floatingip_v2" "node1_fip" {
 
 resource "openstack_compute_floatingip_associate_v2" "node1_fip_assoc" {
   floating_ip = openstack_networking_floatingip_v2.node1_fip.address
-  instance_id = openstack_compute_instance_v2.nodes[0].id
+  instance_id = openstack_compute_instance_v2.node1.id
 }

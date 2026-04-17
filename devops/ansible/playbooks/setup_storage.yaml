@@ -31,23 +31,35 @@
         owner: cc
         group: cc
 
-    - name: Create partition table (GPT)
-      command: parted -s {{ item.device }} mklabel gpt
+    - name: Check if partition already exists and has a filesystem
+      command: "blkid -s TYPE -o value {{ item.device }}1"
       loop: "{{ volumes }}"
-      args:
-        creates: "{{ item.mount }}"
+      register: blkid_check
+      failed_when: false
+      changed_when: false
+
+    - name: Create partition table (GPT)
+      command: "parted -s {{ item.item.device }} mklabel gpt"
+      loop: "{{ blkid_check.results }}"
+      when: item.rc != 0 or item.stdout == ''
+      loop_control:
+        label: "{{ item.item.device }}"
 
     - name: Create partition
-      command: parted -s {{ item.device }} mkpart primary ext4 0% 100%
-      loop: "{{ volumes }}"
-      args:
-        creates: "{{ item.mount }}"
+      command: "parted -s {{ item.item.device }} mkpart primary ext4 0% 100%"
+      loop: "{{ blkid_check.results }}"
+      when: item.rc != 0 or item.stdout == ''
+      loop_control:
+        label: "{{ item.item.device }}"
 
-    - name: Format partition as ext4
+    - name: Format partition as ext4 (only if not already formatted)
       filesystem:
         fstype: ext4
-        dev: "{{ item.device }}1"
-      loop: "{{ volumes }}"
+        dev: "{{ item.item.device }}1"
+      loop: "{{ blkid_check.results }}"
+      when: item.rc != 0
+      loop_control:
+        label: "{{ item.item.device }}"
 
     - name: Create mount points
       file:

@@ -3,19 +3,24 @@ output "floating_ip" {
   value       = openstack_networking_floatingip_v2.node1_fip.address
 }
 
+output "node1_sharednet_ip" {
+  description = "Node1 IP on sharednet1"
+  value       = openstack_compute_instance_v2.node1.network[0].fixed_ip_v4
+}
+
 output "node_private_ips" {
   description = "Private IPs for all nodes"
   value       = var.private_ips
 }
 
-output "node_names" {
-  description = "Instance names"
-  value       = openstack_compute_instance_v2.nodes[*].name
+output "node1_id" {
+  description = "Node1 instance ID"
+  value       = openstack_compute_instance_v2.node1.id
 }
 
-output "node_ids" {
-  description = "Instance IDs"
-  value       = openstack_compute_instance_v2.nodes[*].id
+output "worker_ids" {
+  description = "Worker instance IDs"
+  value       = openstack_compute_instance_v2.workers[*].id
 }
 
 output "volume_devices" {

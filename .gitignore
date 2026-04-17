@@ -212,6 +212,21 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+terraform.tfvars
+.terraform.lock.hcl
+
+# Kubespray release (cloned on Chameleon, not a submodule)
+devops/kubespray-release/
+
+# Claude Code
+CLAUDE.md
+docs/superpowers/
+
 # XITE datasets
 XITE-Million-Sessions-Dataset/
 
