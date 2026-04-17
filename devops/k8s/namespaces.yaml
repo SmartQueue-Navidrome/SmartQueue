@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: smartqueue-prod
+  name: smartqueue-platform
   labels:
     app.kubernetes.io/part-of: smartqueue
 ---
@@ -9,5 +9,40 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: smartqueue-staging
+  labels:
+    app.kubernetes.io/part-of: smartqueue
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: smartqueue-canary
+  labels:
+    app.kubernetes.io/part-of: smartqueue
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: smartqueue-prod
+  labels:
+    app.kubernetes.io/part-of: smartqueue
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: argocd
+  labels:
+    app.kubernetes.io/part-of: smartqueue
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: argo
+  labels:
+    app.kubernetes.io/part-of: smartqueue
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
   labels:
     app.kubernetes.io/part-of: smartqueue
