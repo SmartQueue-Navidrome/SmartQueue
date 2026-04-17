@@ -6,7 +6,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/yanghao13111/SmartQueue.git
+    repoURL: https://github.com/SmartQueue-Navidrome/SmartQueue.git
     targetRevision: main
     path: devops/k8s/serving/overlays/canary
   destination:
