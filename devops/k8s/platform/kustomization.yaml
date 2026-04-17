@@ -16,4 +16,6 @@ resources:
   - gateway/traefik.yaml
   - gateway/gateway.yaml
   - gateway/httproute.yaml
-  - gateway/reference-grants.yaml
+  # reference-grants have explicit cross-namespace targets,
+  # applied separately to avoid kustomize namespace override
+  # kubectl apply -f gateway/reference-grants.yaml

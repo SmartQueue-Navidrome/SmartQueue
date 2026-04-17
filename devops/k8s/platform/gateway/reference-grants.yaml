@@ -1,7 +1,7 @@
 apiVersion: gateway.networking.k8s.io/v1beta1
 kind: ReferenceGrant
 metadata:
-  name: allow-platform-route
+  name: allow-platform-route-prod
   namespace: smartqueue-prod
 spec:
   from:
@@ -15,7 +15,7 @@ spec:
 apiVersion: gateway.networking.k8s.io/v1beta1
 kind: ReferenceGrant
 metadata:
-  name: allow-platform-route
+  name: allow-platform-route-canary
   namespace: smartqueue-canary
 spec:
   from:
@@ -29,7 +29,7 @@ spec:
 apiVersion: gateway.networking.k8s.io/v1beta1
 kind: ReferenceGrant
 metadata:
-  name: allow-platform-route
+  name: allow-platform-route-staging
   namespace: smartqueue-staging
 spec:
   from:
