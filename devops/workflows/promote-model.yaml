@@ -1,0 +1,33 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: promote-model
+  namespace: argo
+spec:
+  entrypoint: promote
+  arguments:
+    parameters:
+      - name: model-uri
+      - name: model-version
+      - name: target-app
+        value: smartqueue-prod
+  templates:
+    - name: promote
+      inputs:
+        parameters:
+          - name: model-uri
+          - name: model-version
+          - name: target-app
+      steps:
+        - - name: deploy
+            templateRef:
+              name: deploy-to-env
+              template: deploy
+            arguments:
+              parameters:
+                - name: app-name
+                  value: "{{inputs.parameters.target-app}}"
+                - name: model-uri
+                  value: "{{inputs.parameters.model-uri}}"
+                - name: model-version
+                  value: "{{inputs.parameters.model-version}}"

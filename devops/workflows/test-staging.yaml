@@ -1,0 +1,43 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: test-staging
+  namespace: argo
+spec:
+  entrypoint: test
+  templates:
+    - name: test
+      container:
+        image: curlimages/curl:8.5.0
+        command: [sh, -c]
+        args:
+          - |
+            echo "Waiting for staging to be ready..."
+            for i in $(seq 1 12); do
+              STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+                http://smartqueue-serving.smartqueue-staging.svc.cluster.local:8000/health || true)
+              if [ "$STATUS" = "200" ]; then
+                echo "Staging healthy!"
+                break
+              fi
+              echo "Attempt $i/12: status=$STATUS, retrying in 5s..."
+              sleep 5
+            done
+            if [ "$STATUS" != "200" ]; then
+              echo "ERROR: Staging not healthy after 60s"
+              exit 1
+            fi
+            echo "Running smoke test..."
+            RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+              http://smartqueue-serving.smartqueue-staging.svc.cluster.local:8000/queue \
+              -H "Content-Type: application/json" \
+              -d '{"session_id":"test-001","user_features":{"skip_rate":0.3,"favorite_genre":"pop","watch_time_avg":45.2},"candidate_songs":[{"video_id":"v001","release_year":2023,"context_segment":"morning","genre":"pop","subgenre":"dance_pop"}]}')
+            HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+            BODY=$(echo "$RESPONSE" | head -n -1)
+            echo "Response code: $HTTP_CODE"
+            echo "Response body: $BODY"
+            if [ "$HTTP_CODE" != "200" ]; then
+              echo "ERROR: Smoke test failed with status $HTTP_CODE"
+              exit 1
+            fi
+            echo "Staging smoke test passed!"

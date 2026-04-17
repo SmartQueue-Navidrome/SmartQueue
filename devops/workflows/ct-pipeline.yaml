@@ -1,0 +1,204 @@
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: ct-pipeline
+  namespace: argo
+spec:
+  schedule: "0 2 * * *"
+  timezone: "UTC"
+  concurrencyPolicy: Forbid
+  workflowSpec:
+    entrypoint: ct-main
+    serviceAccountName: argo-workflow-sa
+    templates:
+      - name: ct-main
+        steps:
+          - - name: generate-feedback
+              template: generate-feedback
+          - - name: retrain-data
+              template: retrain-data
+          - - name: train-model
+              template: train-model
+          - - name: evaluate-model
+              template: evaluate-model
+              arguments:
+                parameters:
+                  - name: run-id
+                    value: "{{steps.train-model.outputs.parameters.run-id}}"
+          - - name: deploy-staging
+              templateRef:
+                name: deploy-to-env
+                template: deploy
+              arguments:
+                parameters:
+                  - name: app-name
+                    value: smartqueue-staging
+                  - name: model-uri
+                    value: "runs:/{{steps.train-model.outputs.parameters.run-id}}/model"
+                  - name: model-version
+                    value: "v{{steps.train-model.outputs.parameters.run-id}}"
+          - - name: test-staging
+              templateRef:
+                name: test-staging
+                template: test
+          - - name: deploy-canary
+              templateRef:
+                name: deploy-to-env
+                template: deploy
+              arguments:
+                parameters:
+                  - name: app-name
+                    value: smartqueue-canary
+                  - name: model-uri
+                    value: "runs:/{{steps.train-model.outputs.parameters.run-id}}/model"
+                  - name: model-version
+                    value: "v{{steps.train-model.outputs.parameters.run-id}}"
+          - - name: canary-monitor
+              template: canary-monitor
+          - - name: approve-promotion
+              template: manual-approval
+          - - name: deploy-prod
+              templateRef:
+                name: deploy-to-env
+                template: deploy
+              arguments:
+                parameters:
+                  - name: app-name
+                    value: smartqueue-prod
+                  - name: model-uri
+                    value: "runs:/{{steps.train-model.outputs.parameters.run-id}}/model"
+                  - name: model-version
+                    value: "v{{steps.train-model.outputs.parameters.run-id}}"
+
+      - name: generate-feedback
+        container:
+          image: node1:5000/smartqueue-data:v1
+          command: [python, generator.py]
+          env:
+            - name: QUEUE_ENDPOINT
+              value: http://smartqueue-serving.smartqueue-prod.svc.cluster.local:8000/queue
+            - name: LOCAL_MODE
+              value: "false"
+            - name: S3_ENDPOINT
+              value: https://chi.tacc.chameleoncloud.org:7480
+            - name: S3_BUCKET
+              value: ObjStore_proj13
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: AWS_SECRET_ACCESS_KEY
+
+      - name: retrain-data
+        container:
+          image: node1:5000/smartqueue-data:v1
+          command: [python, retrain.py]
+          env:
+            - name: S3_ENDPOINT
+              value: https://chi.tacc.chameleoncloud.org:7480
+            - name: S3_BUCKET
+              value: ObjStore_proj13
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: AWS_SECRET_ACCESS_KEY
+
+      - name: train-model
+        container:
+          image: node1:5000/smartqueue-training:v1
+          command: [sh, -c]
+          args:
+            - |
+              python train_ranking_renew.py --config /app/configs/stage_b_lgbm_v4.yaml
+              cat /tmp/run_id.txt
+          env:
+            - name: MLFLOW_TRACKING_URI
+              value: http://mlflow.smartqueue-platform.svc.cluster.local:5000
+            - name: MLFLOW_S3_ENDPOINT_URL
+              value: https://chi.tacc.chameleoncloud.org:7480
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: AWS_SECRET_ACCESS_KEY
+        outputs:
+          parameters:
+            - name: run-id
+              valueFrom:
+                path: /tmp/run_id.txt
+
+      - name: evaluate-model
+        inputs:
+          parameters:
+            - name: run-id
+        container:
+          image: python:3.11-slim
+          command: [sh, -c]
+          args:
+            - |
+              pip install mlflow requests > /dev/null 2>&1
+              python -c "
+              import mlflow, sys, os
+              mlflow.set_tracking_uri(os.environ['MLFLOW_TRACKING_URI'])
+              run = mlflow.get_run('{{inputs.parameters.run-id}}')
+              auc = run.data.metrics.get('val_auc', 0)
+              print(f'val_auc = {auc}')
+              threshold = float(os.environ.get('QUALITY_THRESHOLD', '0.65'))
+              if auc < threshold:
+                  print(f'FAIL: val_auc {auc} < {threshold}')
+                  sys.exit(1)
+              print(f'PASS: val_auc {auc} >= {threshold}')
+              "
+          env:
+            - name: MLFLOW_TRACKING_URI
+              value: http://mlflow.smartqueue-platform.svc.cluster.local:5000
+            - name: QUALITY_THRESHOLD
+              value: "0.65"
+
+      - name: canary-monitor
+        container:
+          image: curlimages/curl:8.5.0
+          command: [sh, -c]
+          args:
+            - |
+              echo "Monitoring canary for 30 minutes..."
+              for i in $(seq 1 6); do
+                echo "Check $i/6 ($(( i * 5 )) min)..."
+                STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+                  http://smartqueue-serving.smartqueue-canary.svc.cluster.local:8000/health || true)
+                if [ "$STATUS" != "200" ]; then
+                  echo "ERROR: Canary health check failed, status=$STATUS"
+                  exit 1
+                fi
+                TIME=$(curl -s -o /dev/null -w "%{time_total}" \
+                  -X POST http://smartqueue-serving.smartqueue-canary.svc.cluster.local:8000/queue \
+                  -H "Content-Type: application/json" \
+                  -d '{"session_id":"canary-check","user_features":{"skip_rate":0.3,"favorite_genre":"pop","watch_time_avg":45.2},"candidate_songs":[{"video_id":"v001","release_year":2023,"context_segment":"morning","genre":"pop","subgenre":"dance_pop"}]}')
+                echo "Latency: ${TIME}s"
+                if echo "$TIME" | awk '{exit ($1 > 2.0) ? 0 : 1}'; then
+                  echo "ERROR: Canary latency too high: ${TIME}s > 2.0s"
+                  exit 1
+                fi
+                echo "Canary OK. Sleeping 5m..."
+                sleep 300
+              done
+              echo "Canary monitoring passed!"
+
+      - name: manual-approval
+        suspend: {}

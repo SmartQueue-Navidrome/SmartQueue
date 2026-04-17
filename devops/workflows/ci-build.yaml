@@ -1,0 +1,68 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: ci-build
+  namespace: argo
+spec:
+  entrypoint: build-and-deploy
+  arguments:
+    parameters:
+      - name: git-sha
+        value: latest
+  templates:
+    - name: build-and-deploy
+      inputs:
+        parameters:
+          - name: git-sha
+      steps:
+        - - name: build-image
+            template: docker-build
+            arguments:
+              parameters:
+                - name: git-sha
+                  value: "{{inputs.parameters.git-sha}}"
+        - - name: deploy-staging
+            templateRef:
+              name: deploy-to-env
+              template: deploy
+            arguments:
+              parameters:
+                - name: app-name
+                  value: smartqueue-staging
+                - name: model-uri
+                  value: runs:/CURRENT/model
+                - name: model-version
+                  value: "{{inputs.parameters.git-sha}}"
+        - - name: test-staging
+            templateRef:
+              name: test-staging
+              template: test
+
+    - name: docker-build
+      inputs:
+        parameters:
+          - name: git-sha
+      container:
+        image: docker:24-cli
+        command: [sh, -c]
+        args:
+          - |
+            docker build -t node1:5000/smartqueue-serving:{{inputs.parameters.git-sha}} \
+              -f /workspace/serving/docker/Dockerfile.lightgbm \
+              /workspace/serving/
+            docker push node1:5000/smartqueue-serving:{{inputs.parameters.git-sha}}
+            docker tag node1:5000/smartqueue-serving:{{inputs.parameters.git-sha}} \
+              node1:5000/smartqueue-serving:latest
+            docker push node1:5000/smartqueue-serving:latest
+        volumeMounts:
+          - name: docker-sock
+            mountPath: /var/run/docker.sock
+          - name: workspace
+            mountPath: /workspace
+      volumes:
+        - name: docker-sock
+          hostPath:
+            path: /var/run/docker.sock
+        - name: workspace
+          hostPath:
+            path: /home/cc/SmartQueue

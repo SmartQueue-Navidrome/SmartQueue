@@ -1,0 +1,41 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: deploy-to-env
+  namespace: argo
+spec:
+  entrypoint: deploy
+  arguments:
+    parameters:
+      - name: app-name
+      - name: model-uri
+      - name: model-version
+  templates:
+    - name: deploy
+      inputs:
+        parameters:
+          - name: app-name
+          - name: model-uri
+          - name: model-version
+      container:
+        image: argoproj/argocd:v2.12.0
+        command: [sh, -c]
+        args:
+          - |
+            argocd login argocd-server.argocd.svc.cluster.local:443 \
+              --username admin \
+              --password $(ARGOCD_PASSWORD) \
+              --insecure --grpc-web
+            argocd app set {{inputs.parameters.app-name}} \
+              --kustomize-image node1:5000/smartqueue-serving:v1
+            argocd app set {{inputs.parameters.app-name}} \
+              --parameter MODEL_URI={{inputs.parameters.model-uri}} \
+              --parameter MODEL_VERSION={{inputs.parameters.model-version}} || true
+            argocd app sync {{inputs.parameters.app-name}} --force
+            argocd app wait {{inputs.parameters.app-name}} --timeout 120
+        env:
+          - name: ARGOCD_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: argocd-initial-admin-secret
+                key: password
