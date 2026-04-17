@@ -54,7 +54,7 @@ spec:
         - name: traefik
           image: traefik:v3.1
           args:
-            - --providers.kubernetesgatewayprovider
+            - --providers.kubernetesgateway
             - --entrypoints.web.address=:80
             - --api.insecure=true
           ports:
