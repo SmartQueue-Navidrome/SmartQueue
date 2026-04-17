@@ -32,7 +32,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-SKIP_THRESHOLD  = 30
+SKIP_THRESHOLD  = 180
 TRAIN_RATIO     = 0.80
 VAL_RATIO       = 0.10
 TEST_RATIO      = 0.05

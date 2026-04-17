@@ -25,7 +25,7 @@ import json
 import time
 import argparse
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 import pandas as pd
 
@@ -144,6 +144,62 @@ def build_retrain_rows(feedback_df: pd.DataFrame, production_df: pd.DataFrame) -
     return pd.DataFrame(rows)
 
 
+# ── compiled retrain dataset quality check ────────────────────────────────────
+
+RETRAIN_FEATURE_COLS = [
+    "session_id", "video_id", "is_engaged",
+    "genre_encoded", "subgenre_encoded", "release_year", "context_segment",
+    "user_skip_rate", "user_favorite_genre_encoded", "user_watch_time_avg",
+]
+RETRAIN_MIN_ROWS = 1500
+
+
+def _check_retrain_dataset(df: pd.DataFrame) -> None:
+    """
+    Validate compiled retrain DataFrame before saving and training.
+    Raises ValueError if any check fails.
+    """
+    print("  Retrain dataset quality checks:")
+    errors = []
+
+    # Row count
+    if len(df) < RETRAIN_MIN_ROWS:
+        errors.append(f"✗ row count {len(df):,} < {RETRAIN_MIN_ROWS:,} (not enough data to retrain)")
+    else:
+        print(f"    ✓ row count {len(df):,} ≥ {RETRAIN_MIN_ROWS:,}")
+
+    # Required columns
+    missing = [c for c in RETRAIN_FEATURE_COLS if c not in df.columns]
+    if missing:
+        errors.append(f"✗ missing columns: {missing}")
+    else:
+        print(f"    ✓ all required columns present")
+
+    # No nulls
+    null_cols = [c for c in RETRAIN_FEATURE_COLS if df[c].isnull().any()]
+    if null_cols:
+        errors.append(f"✗ null values found in: {null_cols}")
+    else:
+        print(f"    ✓ no nulls in feature columns")
+
+    # Label distribution
+    engaged_rate = df["is_engaged"].mean()
+    if not (0.50 <= engaged_rate <= 0.85):
+        errors.append(
+            f"✗ is_engaged ratio {engaged_rate:.1%} outside 50%–85% "
+            "(degenerate label distribution)"
+        )
+    else:
+        print(f"    ✓ is_engaged ratio {engaged_rate:.1%} within 50%–85%")
+
+    if errors:
+        raise ValueError(
+            "Retrain dataset quality checks failed:\n" +
+            "\n".join(f"  {e}" for e in errors)
+        )
+    print("  All retrain checks passed.")
+
+
 # ── main ──────────────────────────────────────────────────────────────────────
 
 def main():
@@ -156,7 +212,8 @@ def main():
     data_dir      = Path(args.data_dir)
     feedback_dir  = data_dir / "feedback"
     processed_dir = data_dir / "processed"
-    date_str      = args.date or datetime.now(timezone.utc).strftime("%Y%m%d")
+    yesterday     = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y%m%d")
+    date_str      = args.date or yesterday
     retrain_dir   = data_dir / "retrain" / f"v{date_str}"
     retrain_dir.mkdir(parents=True, exist_ok=True)
 
@@ -185,26 +242,27 @@ def main():
     new_rows = build_retrain_rows(feedback_df, production_df)
     print(f"  {len(new_rows):,} new rows built  ({time.perf_counter()-t:.1f}s)")
 
-    # 4. Merge with original train.parquet
-    print("\n[4/4] Merging with original train.parquet ...")
+    # 3b. Compiled retrain dataset quality checks
+    print("\n[3b] Running retrain dataset quality checks ...")
     t = time.perf_counter()
-    train_df  = pd.read_parquet(processed_dir / "train.parquet")
-    retrain   = pd.concat([train_df, new_rows], ignore_index=True)
-    out_path  = retrain_dir / "train.parquet"
-    retrain.to_parquet(out_path, index=False)
-    print(f"  Original: {len(train_df):,}  +  New: {len(new_rows):,}  =  Total: {len(retrain):,}")
-    print(f"  Saved → {out_path}  ({time.perf_counter()-t:.1f}s)")
+    _check_retrain_dataset(new_rows)
+    print(f"[3b] Done in {time.perf_counter()-t:.1f}s")
+
+    # 4. Save retrain dataset (feedback only — no concat with original train)
+    print("\n[4/4] Saving retrain dataset ...")
+    t = time.perf_counter()
+    out_path = retrain_dir / "train.parquet"
+    new_rows.to_parquet(out_path, index=False)
+    print(f"  {len(new_rows):,} rows saved → {out_path}  ({time.perf_counter()-t:.1f}s)")
 
     # Metadata
     metadata = {
-        "timestamp":          datetime.now(timezone.utc).isoformat(),
-        "version":            f"v{date_str}",
-        "feedback_files":     len(list(feedback_dir.glob(f"{date_str}_*.jsonl"))),
-        "feedback_sessions":  int(feedback_df["session_id"].nunique()),
-        "feedback_rows":      int(len(new_rows)),
-        "original_train_rows": int(len(train_df)),
-        "total_rows":         int(len(retrain)),
-        "engaged_rate":       round(float(retrain["is_engaged"].mean()), 4),
+        "timestamp":         datetime.now(timezone.utc).isoformat(),
+        "version":           f"v{date_str}",
+        "feedback_files":    len(list(feedback_dir.glob(f"{date_str}_*.jsonl"))),
+        "feedback_sessions": int(feedback_df["session_id"].nunique()),
+        "total_rows":        int(len(new_rows)),
+        "engaged_rate":      round(float(new_rows["is_engaged"].mean()), 4),
     }
     with open(retrain_dir / "metadata.json", "w") as f:
         json.dump(metadata, f, indent=2)

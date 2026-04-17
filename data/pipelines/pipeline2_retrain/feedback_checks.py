@@ -54,13 +54,28 @@ def run_checks(feedback_df: pd.DataFrame) -> None:
 
     result = batch.validate(suite)
 
-    print("  Data quality checks:")
+    print("  Feedback data quality checks:")
     all_passed = True
     for r in result.results:
         status = "✓" if r["success"] else "✗"
-        check_name = r["expectation_config"]["type"]
-        col = r["expectation_config"].get("kwargs", {}).get("column", "")
-        label = f"{check_name}({col})" if col else check_name
+        kwargs = r["expectation_config"].get("kwargs", {})
+        col = kwargs.get("column", "")
+        min_v = kwargs.get("min_value")
+        max_v = kwargs.get("max_value")
+        value_set = kwargs.get("value_set")
+        check_type = r["expectation_config"]["type"]
+
+        if check_type == "expect_table_row_count_to_be_between":
+            label = f"row count ≥ {min_v:,}"
+        elif check_type == "expect_column_values_to_not_be_null":
+            label = f"{col}: no nulls"
+        elif check_type == "expect_column_values_to_be_in_set":
+            label = f"{col}: values in {value_set}"
+        elif check_type == "expect_column_values_to_be_between":
+            label = f"{col}: values between {min_v}–{max_v}"
+        else:
+            label = f"{check_type}({col})" if col else check_type
+
         print(f"    {status} {label}")
         if not r["success"]:
             all_passed = False
