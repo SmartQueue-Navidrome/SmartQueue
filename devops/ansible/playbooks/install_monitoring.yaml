@@ -1,0 +1,53 @@
+---
+- name: Install kube-prometheus-stack
+  hosts: control_plane
+  become: false
+  tasks:
+    - name: Add prometheus-community Helm repo
+      command: helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+      register: helm_repo
+      changed_when: "'has been added' in helm_repo.stdout"
+
+    - name: Update Helm repos
+      command: helm repo update
+
+    - name: Install kube-prometheus-stack
+      command: >
+        helm upgrade --install kube-prometheus-stack
+        prometheus-community/kube-prometheus-stack
+        --namespace monitoring
+        --create-namespace
+        --set grafana.service.type=NodePort
+        --set grafana.service.nodePort=30300
+        --set grafana.adminPassword=smartqueue
+        --set prometheus.service.type=NodePort
+        --set prometheus.service.nodePort=30090
+        --set alertmanager.service.type=NodePort
+        --set alertmanager.service.nodePort=30093
+        --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false
+        --set prometheus.prometheusSpec.ruleSelectorNilUsesHelmValues=false
+        --timeout 300s
+        --wait
+
+    - name: Apply custom PrometheusRules
+      command: kubectl apply -f /home/cc/k8s/monitoring/prometheus-rules.yaml
+
+    - name: Create Grafana dashboard ConfigMap (cluster)
+      shell: |
+        kubectl create configmap grafana-dashboard-cluster \
+          --from-file=cluster.json=/home/cc/k8s/monitoring/grafana-dashboards/cluster.json \
+          --namespace monitoring \
+          --dry-run=client -o yaml | kubectl apply -f -
+        kubectl label configmap grafana-dashboard-cluster \
+          grafana_dashboard=1 \
+          --namespace monitoring --overwrite
+
+    - name: Create Grafana dashboard ConfigMap (serving)
+      shell: |
+        kubectl create configmap grafana-dashboard-serving \
+          --from-file=serving.json=/home/cc/k8s/monitoring/grafana-dashboards/serving.json \
+          --namespace monitoring \
+          --dry-run=client -o yaml | kubectl apply -f -
+        kubectl label configmap grafana-dashboard-serving \
+          grafana_dashboard=1 \
+          --namespace monitoring --overwrite
