@@ -14,7 +14,7 @@ from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTEN
 from starlette.responses import Response
 
 MLFLOW_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", "http://129.114.25.107:8000")
-MODEL_URI = os.environ.get("MODEL_URI", "runs:/b5bc4918ef0b41ff80844a52be538398/model")
+MODEL_URI = os.environ.get("MODEL_URI", "models:/smartqueue-ranking/Production")
 MODEL_NAME = os.environ.get("MODEL_NAME", "smartqueue-ranking")
 MODEL_STAGE = os.environ.get("MODEL_STAGE", "Production")
 MODEL_VERSION = os.environ.get("MODEL_VERSION", "lightgbm_mlflow")

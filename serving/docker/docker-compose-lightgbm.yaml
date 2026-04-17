@@ -10,7 +10,9 @@ services:
       - "8000:8000"
     environment:
       - MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI:-http://129.114.25.107:8000}
-      - MODEL_URI=${MODEL_URI:-runs:/b5bc4918ef0b41ff80844a52be538398/model}
+      - MODEL_NAME=${MODEL_NAME:-smartqueue-ranking}
+      - MODEL_STAGE=${MODEL_STAGE:-Production}
+      - MODEL_URI=${MODEL_URI:-models:/${MODEL_NAME:-smartqueue-ranking}/${MODEL_STAGE:-Production}}
       - MODEL_VERSION=${MODEL_VERSION:-lightgbm_mlflow}
       - UVICORN_PORT=8000
       - UVICORN_WORKERS=${UVICORN_WORKERS:-1}
@@ -46,7 +48,7 @@ services:
       - HOST=http://fastapi_lgbm:8000
       - SHARED_DIR=/shared
       - CAPTURE_CONTAINER=fastapi_lgbm
-      - MODEL_PATH_USED=${MODEL_URI:-runs:/b5bc4918ef0b41ff80844a52be538398/model}
+      - MODEL_PATH_USED=${MODEL_URI:-models:/${MODEL_NAME:-smartqueue-ranking}/${MODEL_STAGE:-Production}}
       - MODEL_VERSION_USED=${MODEL_VERSION:-lightgbm_mlflow}
       - UVICORN_WORKERS_USED=${UVICORN_WORKERS:-1}
       - TYPICAL_USERS=${TYPICAL_USERS:-10}

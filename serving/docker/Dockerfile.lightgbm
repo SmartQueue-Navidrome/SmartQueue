@@ -10,7 +10,9 @@ COPY lightgbm_app/start.sh .
 RUN chmod +x /app/start.sh
 
 ENV MLFLOW_TRACKING_URI=http://129.114.25.107:8000
-ENV MODEL_URI=runs:/b5bc4918ef0b41ff80844a52be538398/model
+ENV MODEL_NAME=smartqueue-ranking
+ENV MODEL_STAGE=Production
+ENV MODEL_URI=models:/smartqueue-ranking/Production
 ENV MODEL_VERSION=lightgbm_mlflow
 
 EXPOSE 8000
