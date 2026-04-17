@@ -1,7 +1,6 @@
 ---
 # Post-Kubernetes setup
 # Run after Kubespray cluster.yml completes
-# Based on Lab 2 & Lab 3 patterns
 
 - name: Post-K8S configuration
   hosts: control_plane
@@ -15,7 +14,50 @@
       args:
         creates: /home/cc/.kube/config
 
-- name: Install Docker CLI and registry (kubespray uses containerd, but we need docker for building images)
+- name: Setup NAT on node1 for worker internet access
+  hosts: control_plane
+  become: true
+  tasks:
+
+    - name: Enable IP forwarding
+      sysctl:
+        name: net.ipv4.ip_forward
+        value: "1"
+        sysctl_set: true
+        reload: true
+
+    - name: Setup NAT masquerade (sharednet1 interface)
+      shell: |
+        IFACE=$(ip -4 route get 8.8.8.8 | awk '{print $5; exit}')
+        iptables -t nat -C POSTROUTING -o $IFACE -s 192.168.1.0/24 -j MASQUERADE 2>/dev/null || \
+        iptables -t nat -A POSTROUTING -o $IFACE -s 192.168.1.0/24 -j MASQUERADE
+      changed_when: false
+
+    - name: Persist iptables rules
+      shell: |
+        apt-get install -y iptables-persistent
+        iptables-save > /etc/iptables/rules.v4
+      args:
+        creates: /etc/iptables/rules.v4
+
+- name: Configure default route on workers
+  hosts: workers:!control_plane
+  become: true
+  tasks:
+
+    - name: Set default gateway to node1 private IP
+      shell: |
+        ip route replace default via 192.168.1.11
+      changed_when: false
+
+    - name: Set DNS
+      copy:
+        content: |
+          nameserver 8.8.8.8
+          nameserver 8.8.4.4
+        dest: /etc/resolv.conf
+
+- name: Install Docker CLI and registry
   hosts: control_plane
   become: true
   tasks:
@@ -30,7 +72,7 @@
       args:
         creates: /etc/apt/sources.list.d/docker.list
 
-    - name: Install Docker CE (skip containerd.io to avoid conflict)
+    - name: Install Docker CE
       apt:
         name:
           - docker-ce
@@ -59,6 +101,17 @@
       args:
         creates: /var/lib/docker
 
+- name: Install Helm
+  hosts: control_plane
+  become: true
+  tasks:
+
+    - name: Install Helm
+      shell: |
+        curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+      args:
+        creates: /usr/local/bin/helm
+
 - name: Apply K8S resources
   hosts: control_plane
   become: false
@@ -71,8 +124,109 @@
         owner: cc
         group: cc
 
+    - name: Copy workflows to node1
+      copy:
+        src: "{{ playbook_dir }}/../../workflows/"
+        dest: /home/cc/workflows/
+        owner: cc
+        group: cc
+
     - name: Create namespaces
       command: kubectl apply -f /home/cc/k8s/namespaces.yaml
 
     - name: Create PersistentVolumes
       command: kubectl apply -f /home/cc/k8s/storage/persistent-volumes.yaml
+
+    - name: Install Gateway API CRDs
+      command: kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.1.0/standard-install.yaml
+
+- name: Install ArgoCD
+  hosts: control_plane
+  become: false
+  tasks:
+
+    - name: Add ArgoCD Helm repo
+      command: helm repo add argo https://argoproj.github.io/argo-helm
+
+    - name: Update Helm repos
+      command: helm repo update
+
+    - name: Install ArgoCD
+      command: >
+        helm upgrade --install argocd argo/argo-cd
+        --namespace argocd
+        --create-namespace
+        --set server.service.type=NodePort
+        --set server.service.nodePort=30443
+        --set server.extraArgs[0]=--insecure
+        --timeout 300s
+        --wait
+
+    - name: Wait for ArgoCD server
+      command: kubectl rollout status deployment argocd-server -n argocd --timeout=120s
+
+    - name: Apply ArgoCD applications
+      command: kubectl apply -f /home/cc/k8s/argocd/applications/
+
+- name: Install Argo Workflows
+  hosts: control_plane
+  become: false
+  tasks:
+
+    - name: Install Argo Workflows
+      command: >
+        helm upgrade --install argo-workflows argo/argo-workflows
+        --namespace argo
+        --create-namespace
+        --set server.service.type=NodePort
+        --set server.service.nodePort=30446
+        --set server.auth.mode=server
+        --timeout 300s
+        --wait
+
+    - name: Create Argo Workflow ServiceAccount
+      shell: |
+        kubectl apply -f - <<'EOF'
+        apiVersion: v1
+        kind: ServiceAccount
+        metadata:
+          name: argo-workflow-sa
+          namespace: argo
+        ---
+        apiVersion: rbac.authorization.k8s.io/v1
+        kind: ClusterRole
+        metadata:
+          name: argo-workflow-role
+        rules:
+          - apiGroups: ["batch"]
+            resources: ["jobs"]
+            verbs: ["create", "get", "list", "watch", "delete"]
+          - apiGroups: [""]
+            resources: ["pods", "pods/log", "secrets", "services"]
+            verbs: ["get", "list", "watch"]
+          - apiGroups: ["argoproj.io"]
+            resources: ["workflows", "workflowtemplates", "cronworkflows"]
+            verbs: ["*"]
+        ---
+        apiVersion: rbac.authorization.k8s.io/v1
+        kind: ClusterRoleBinding
+        metadata:
+          name: argo-workflow-binding
+        roleRef:
+          apiGroup: rbac.authorization.k8s.io
+          kind: ClusterRole
+          name: argo-workflow-role
+        subjects:
+          - kind: ServiceAccount
+            name: argo-workflow-sa
+            namespace: argo
+        EOF
+
+    - name: Apply WorkflowTemplates
+      command: kubectl apply -f /home/cc/workflows/
+
+    - name: Create s3-secret in argo namespace
+      shell: |
+        kubectl get secret s3-secret -n smartqueue-platform -o yaml \
+          | sed 's/namespace: smartqueue-platform/namespace: argo/' \
+          | kubectl apply -f - || true
