@@ -7,13 +7,14 @@ Features: release_year, context_segment, genre_encoded, subgenre_encoded,
           user_skip_rate, user_favorite_genre_encoded, user_watch_time_avg
 
 Usage:
-    python train_ranking_processed.py configs/stage_b_lgbm_v2.yaml
+    python train_ranking_processed.py configs/stage_b_lgbm_v4.yaml
 """
 
 import os
 import sys
 import time
 import yaml
+import joblib
 import mlflow
 import mlflow.sklearn
 import mlflow.lightgbm
@@ -29,6 +30,10 @@ from sklearn.metrics import roc_auc_score, log_loss
 MODEL_REGISTRY_NAME = "smartqueue-ranking"
 AUC_FLOOR = 0.70          # absolute minimum — must beat this even if no prod model exists
 LOGLOSS_CEILING = 0.70    # absolute maximum logloss allowed
+# ──────────────────────────────────────────────────────────────────────────────
+
+# ── Local Model Save Path (for serving fallback / rollback) ───────────────────
+LOCAL_MODEL_PATH = "/data/models/ranking_model_latest.pkl"
 # ──────────────────────────────────────────────────────────────────────────────
 
 FEATURE_COLS = [
@@ -130,6 +135,16 @@ def train_lightgbm(X_train, y_train, X_val, y_val, cfg):
     )
     y_pred = model.predict(X_val)
     return model, y_pred
+
+
+def save_model_locally(model) -> None:
+    """
+    Save model to local filesystem as fallback for serving.
+    Overwrites ranking_model_latest.pkl so serving always has the newest passing model.
+    """
+    os.makedirs(os.path.dirname(LOCAL_MODEL_PATH), exist_ok=True)
+    joblib.dump(model, LOCAL_MODEL_PATH)
+    print(f"[save] Model saved locally to {LOCAL_MODEL_PATH}")
 
 
 def get_production_metrics(client: MlflowClient) -> dict | None:
@@ -295,10 +310,11 @@ def main():
 
         if passed:
             print(f"[gate] ✅ PASSED — {reason}")
+            save_model_locally(model)
             register_model(run_id, val_auc, val_logloss, client)
         else:
             print(f"[gate] ❌ FAILED — {reason}")
-            print(f"[gate] Model logged to MLflow but NOT registered.")
+            print(f"[gate] Model logged to MLflow but NOT registered or saved locally.")
         # ──────────────────────────────────────────────────────────────────────
 
 
