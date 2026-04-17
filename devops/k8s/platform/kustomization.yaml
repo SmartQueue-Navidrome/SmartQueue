@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: smartqueue-platform
+
+resources:
+  - postgres/statefulset.yaml
+  - postgres/service.yaml
+  - postgres/pvc.yaml
+  - mlflow/deployment.yaml
+  - mlflow/service.yaml
+  - navidrome/deployment.yaml
+  - navidrome/service.yaml
+  - navidrome/pvc.yaml
+  - gateway/gateway-class.yaml
+  - gateway/traefik.yaml
+  - gateway/gateway.yaml
+  - gateway/httproute.yaml
+  - gateway/reference-grants.yaml
