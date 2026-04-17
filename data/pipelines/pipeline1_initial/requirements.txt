@@ -5,3 +5,4 @@ pyarrow
 numpy
 scikit-learn
 requests
+great-expectations
