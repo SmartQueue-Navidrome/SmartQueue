@@ -4,7 +4,8 @@ metadata:
   name: ct-pipeline
   namespace: argo
 spec:
-  schedule: "0 2 * * *"
+  schedules:
+    - "0 2 * * *"
   timezone: "UTC"
   concurrencyPolicy: Forbid
   workflowSpec:
