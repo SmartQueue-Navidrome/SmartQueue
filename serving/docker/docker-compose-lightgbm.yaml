@@ -16,7 +16,7 @@ services:
       # Leave MLflow unset for Docker Compose so serving uses /models only.
       # To use MLflow from this VM, set MLFLOW_TRACKING_URI and S3 creds (see architecture.md).
       - MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI:-}
-      - MODEL_URI=${MODEL_URI:-runs:/b5cd1cdfbc3649008ed6bd1355e36004/model}
+      - MODEL_URI=${MODEL_URI:-runs:/2ce32ba692c54095b4307ae8eb7ba508/model}
       - UVICORN_PORT=8000
       - UVICORN_WORKERS=${UVICORN_WORKERS:-1}
     restart: unless-stopped

@@ -23,9 +23,9 @@ spec:
             - name: MLFLOW_TRACKING_URI
               value: http://mlflow.smartqueue-platform.svc.cluster.local:5000
             - name: MODEL_URI
-              value: runs:/b5cd1cdfbc3649008ed6bd1355e36004/model
+              value: runs:/2ce32ba692c54095b4307ae8eb7ba508/model
             - name: MODEL_VERSION
-              value: vb5cd1cdf
+              value: v2ce32ba6
             - name: MLFLOW_S3_ENDPOINT_URL
               value: https://chi.tacc.chameleoncloud.org:7480
             - name: AWS_ACCESS_KEY_ID
