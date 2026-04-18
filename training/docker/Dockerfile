@@ -16,6 +16,6 @@ RUN pip install --no-cache-dir \
     pyarrow \
     joblib
 
-
-    
-WORKDIR /workspace
+WORKDIR /app
+COPY train_ranking_processed.py train_ranking_renew.py train_ranking.py ./
+COPY configs/ ./configs/

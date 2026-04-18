@@ -317,6 +317,9 @@ def main():
             print(f"[gate] Model logged to MLflow but NOT registered or saved locally.")
         # ──────────────────────────────────────────────────────────────────────
 
+        with open("/tmp/run_id.txt", "w") as f:
+            f.write(run_id)
+
 
 if __name__ == "__main__":
     main()
