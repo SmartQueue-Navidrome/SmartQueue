@@ -134,6 +134,23 @@ INVALID_REQUEST_COUNT = Counter(
     "invalid_request_total",
     "Requests rejected due to invalid input (422)",
 )
+RERANK_TOTAL = Counter(
+    "smartqueue_rerank_total",
+    "Total rerank requests served",
+)
+FEEDBACK_SKIPS = Counter(
+    "smartqueue_feedback_skips_total",
+    "Songs skipped after reranking (user feedback)",
+)
+FEEDBACK_COMPLETIONS = Counter(
+    "smartqueue_feedback_completions_total",
+    "Songs played to completion after reranking (user feedback)",
+)
+FEEDBACK_SONGS_KEPT = Histogram(
+    "smartqueue_feedback_songs_kept",
+    "Fraction of ML-ranked top positions kept by user",
+    buckets=[0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
+)
 
 
 @app.exception_handler(RequestValidationError)
@@ -245,6 +262,7 @@ def queue(req: QueueRequest):
             status = "422"
             raise HTTPException(status_code=422, detail="candidate_songs must not be empty")
 
+        RERANK_TOTAL.inc()
         feature_frame = build_feature_frame(req)
         scores = model.predict(feature_frame)
 
@@ -349,3 +367,73 @@ def active_sessions_detailed():
                 )
             )
     return ActiveSessionsResponse(count=len(session_list), sessions=session_list)
+
+
+# ─── Feedback ────────────────────────────────────────────────────────────────
+
+class SongFeedback(BaseModel):
+    video_id: str
+    action: str = Field(..., pattern="^(skip|complete)$")
+
+
+class FeedbackRequest(BaseModel):
+    session_id: str
+    events: List[SongFeedback]
+    final_order: Optional[List[str]] = None
+
+
+class FeedbackResponse(BaseModel):
+    session_id: str
+    skips: int
+    completions: int
+    kept_ratio: Optional[float] = None
+
+
+@app.post("/feedback", response_model=FeedbackResponse)
+def feedback(req: FeedbackRequest):
+    """
+    Receive user engagement feedback after a reranked queue is played.
+    - events: per-song skip/complete signals
+    - final_order: the video_id order the user actually listened in,
+      compared against the ML-ranked order to compute kept_ratio
+    """
+    start_time = time.time()
+    handler = "/feedback"
+    status = "200"
+    try:
+        skips = 0
+        completions = 0
+        for ev in req.events:
+            if ev.action == "skip":
+                skips += 1
+                FEEDBACK_SKIPS.inc()
+            else:
+                completions += 1
+                FEEDBACK_COMPLETIONS.inc()
+
+        kept_ratio = None
+        with session_lock:
+            session_data = active_sessions.get(req.session_id)
+            if session_data and req.final_order and session_data.get("ranked_songs"):
+                ml_order = [s["video_id"] for s in session_data["ranked_songs"]]
+                matches = sum(
+                    1 for ml_id, user_id in zip(ml_order, req.final_order)
+                    if ml_id == user_id
+                )
+                kept_ratio = matches / max(len(ml_order), 1)
+                FEEDBACK_SONGS_KEPT.observe(kept_ratio)
+
+        return FeedbackResponse(
+            session_id=req.session_id,
+            skips=skips,
+            completions=completions,
+            kept_ratio=kept_ratio,
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        status = "500"
+        raise
+    finally:
+        REQUEST_COUNT.labels(method="POST", handler=handler, status=status).inc()
+        REQUEST_LATENCY.labels(method="POST", handler=handler).observe(time.time() - start_time)
