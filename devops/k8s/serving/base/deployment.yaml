@@ -23,9 +23,9 @@ spec:
             - name: MLFLOW_TRACKING_URI
               value: http://mlflow.smartqueue-platform.svc.cluster.local:5000
             - name: MODEL_URI
-              value: runs:/PLACEHOLDER/model
+              value: runs:/b5cd1cdfbc3649008ed6bd1355e36004/model
             - name: MODEL_VERSION
-              value: v0
+              value: vb5cd1cdf
             - name: MLFLOW_S3_ENDPOINT_URL
               value: https://chi.tacc.chameleoncloud.org:7480
             - name: AWS_ACCESS_KEY_ID
@@ -41,19 +41,21 @@ spec:
           resources:
             requests:
               cpu: 250m
-              memory: 256Mi
+              memory: 512Mi
             limits:
               cpu: 1000m
-              memory: 512Mi
+              memory: 1Gi
           readinessProbe:
             httpGet:
               path: /health
               port: 8000
-            initialDelaySeconds: 10
-            periodSeconds: 5
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
           livenessProbe:
             httpGet:
               path: /health
               port: 8000
-            initialDelaySeconds: 15
-            periodSeconds: 10
+            initialDelaySeconds: 120
+            periodSeconds: 15
+            timeoutSeconds: 5

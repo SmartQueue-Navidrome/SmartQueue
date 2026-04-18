@@ -17,9 +17,9 @@
 
 ## Integration with Teammates
 
-- [ ] **Deploy a real model to three environments** (DevOps)
-  - Training has a model: run `b5cd1cdf...` with val_auc=0.8495 (FINISHED)
-  - Need to deploy to staging → canary → prod with this run ID
+- [x] **Deploy a real model to three environments** (DevOps)
+  - Model deployed: run `b5cd1cdf...` with val_auc=0.8495
+  - All 3 environments healthy (staging/canary/prod), health endpoint returns model version
 - [x] ~~**Fix data image** (Data)~~ — was a build context issue, not a Dockerfile bug. Fixed and pushed.
 - [x] ~~**Verify training image** (Training)~~ — Training ran 7 runs on MLflow, image works. val_auc=0.85.
 - [ ] **Custom Navidrome image** (Serving)
@@ -41,6 +41,6 @@
 - 3 nodes Ready (v1.30.6), 31Gi RAM each, disk ~50%/21%/25%
 - Platform services running: Navidrome(:30453), MLflow(:30500), PostgreSQL, Traefik, ArgoCD(:30443), Argo Workflows(:30446)
 - Monitoring running: Grafana(:30300), Prometheus(:30090), AlertManager(:30093)
-- Serving pods: CrashLoopBackOff (waiting for model deployment)
+- Serving pods: Running & healthy in all 3 environments (staging 1/1, canary 1/1, prod 2/2)
 - Registry: node1:5000 (smartqueue-data, smartqueue-mlflow, smartqueue-serving, smartqueue-training)
 - MLflow: 7 runs in `smartqueue-stage-b`, best val_auc=0.8495 (run b5cd1cdf...)
