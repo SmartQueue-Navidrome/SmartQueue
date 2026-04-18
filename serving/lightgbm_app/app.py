@@ -13,13 +13,14 @@ from pydantic import BaseModel, Field
 from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 from starlette.responses import Response
 
-# Model loading config - priority: LOCAL_MODEL_PATH > MLflow
+# Model loading config - priority: MOCK > local file(s) > MLflow (only if MLFLOW_TRACKING_URI set)
 LOCAL_MODEL_PATH = os.environ.get("LOCAL_MODEL_PATH", "")
-MLFLOW_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", "http://129.114.24.226:30500")
+MLFLOW_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", "").strip()
 MODEL_URI = os.environ.get("MODEL_URI", "runs:/b5cd1cdfbc3649008ed6bd1355e36004/model")
 MODEL_NAME = os.environ.get("MODEL_NAME", "smartqueue-ranking")
 MODEL_STAGE = os.environ.get("MODEL_STAGE", "Production")
 MODEL_VERSION = os.environ.get("MODEL_VERSION", "lightgbm_v4")
+MOCK_ON_MLFLOW_FAIL = os.environ.get("MOCK_ON_MLFLOW_FAIL", "false").lower() == "true"
 
 FEATURE_COLUMNS = [
     "release_year",
@@ -45,9 +46,59 @@ class _LightGBMWrapper:
     """Wrapper for native LightGBM model loaded from .txt file."""
     def __init__(self, model_path: str):
         self.booster = lgb.Booster(model_file=model_path)
-    
+
     def predict(self, df):
         return self.booster.predict(df)
+
+
+class _BoosterWrapper:
+    """In-memory Booster (e.g. from joblib pickle saved by training)."""
+
+    def __init__(self, booster: lgb.Booster):
+        self.booster = booster
+
+    def predict(self, df):
+        return self.booster.predict(df)
+
+
+def _iter_local_model_candidates() -> List[str]:
+    paths: List[str] = []
+    if LOCAL_MODEL_PATH:
+        paths.append(LOCAL_MODEL_PATH)
+    extra = os.environ.get("SMARTQUEUE_MODEL_PATHS", "")
+    for p in extra.split(","):
+        p = p.strip()
+        if p:
+            paths.append(p)
+    for name in ("smartqueue_lgbm.txt", "ranking_model_latest.pkl"):
+        paths.append(os.path.join("/models", name))
+    seen = set()
+    out: List[str] = []
+    for p in paths:
+        if p not in seen:
+            seen.add(p)
+            out.append(p)
+    return out
+
+
+def _load_local_model(path: str):
+    """Load from .txt (LightGBM native) or .pkl/.joblib (joblib dump of Booster)."""
+    lower = path.lower()
+    if lower.endswith(".pkl") or lower.endswith(".joblib"):
+        import joblib
+
+        obj = joblib.load(path)
+        if isinstance(obj, lgb.Booster):
+            return _BoosterWrapper(obj)
+        raise RuntimeError(f"Pickle at {path} must contain a lightgbm.Booster, got {type(obj)}")
+    return _LightGBMWrapper(path)
+
+
+def _resolve_first_existing_local_path() -> Optional[str]:
+    for p in _iter_local_model_candidates():
+        if p and os.path.isfile(p):
+            return p
+    return None
 
 
 active_model_uri = "none"
@@ -56,31 +107,50 @@ model = None
 if MOCK_MODE:
     model = _MockModel()
     active_model_uri = "mock"
-elif LOCAL_MODEL_PATH and os.path.exists(LOCAL_MODEL_PATH):
-    # Load from local file (no MLflow needed)
-    print(f"[model] Loading from local file: {LOCAL_MODEL_PATH}")
-    model = _LightGBMWrapper(LOCAL_MODEL_PATH)
-    active_model_uri = f"local:{LOCAL_MODEL_PATH}"
-    print(f"[model] Loaded successfully from {LOCAL_MODEL_PATH}")
-elif MLFLOW_TRACKING_URI:
-    # Fall back to MLflow if configured
-    import mlflow
-    mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
-    try:
-        active_model_uri = f"models:/{MODEL_NAME}/{MODEL_STAGE}"
-        model = mlflow.pyfunc.load_model(active_model_uri)
-        print(f"[model] Loaded from MLflow: {active_model_uri}")
-    except Exception:
-        try:
-            active_model_uri = MODEL_URI
-            model = mlflow.pyfunc.load_model(active_model_uri)
-            print(f"[model] Loaded from MLflow fallback: {active_model_uri}")
-        except Exception as e:
-            print(f"[warn] MLflow unavailable ({e}). Set MOCK_MODE=true or LOCAL_MODEL_PATH.")
-            raise
 else:
-    print("[error] No model source configured. Set LOCAL_MODEL_PATH or MLFLOW_TRACKING_URI.")
-    raise RuntimeError("No model source configured")
+    local_path = _resolve_first_existing_local_path()
+    if local_path:
+        print(f"[model] Loading from local file: {local_path}")
+        model = _load_local_model(local_path)
+        active_model_uri = f"local:{local_path}"
+        print(f"[model] Loaded successfully from {local_path}")
+    elif MLFLOW_TRACKING_URI:
+        import mlflow
+
+        mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+        try:
+            active_model_uri = f"models:/{MODEL_NAME}/{MODEL_STAGE}"
+            model = mlflow.pyfunc.load_model(active_model_uri)
+            print(f"[model] Loaded from MLflow: {active_model_uri}")
+        except Exception:
+            try:
+                active_model_uri = MODEL_URI
+                model = mlflow.pyfunc.load_model(active_model_uri)
+                print(f"[model] Loaded from MLflow fallback: {active_model_uri}")
+            except Exception as e:
+                print(f"[warn] MLflow load failed ({e}).")
+                if MOCK_ON_MLFLOW_FAIL:
+                    model = _MockModel()
+                    active_model_uri = "mock-mlflow-fallback"
+                    print("[model] MOCK_ON_MLFLOW_FAIL=true — using mock model.")
+                else:
+                    print(
+                        "Fix: mount a model under /models (smartqueue_lgbm.txt or ranking_model_latest.pkl), "
+                        "or set MLFLOW_S3_* creds + MLFLOW_TRACKING_URI, or MOCK_MODE=true."
+                    )
+                    raise
+    elif MOCK_ON_MLFLOW_FAIL:
+        model = _MockModel()
+        active_model_uri = "mock-no-source"
+        print("[model] No local model and MLflow disabled — MOCK_ON_MLFLOW_FAIL using mock.")
+    else:
+        searched = ", ".join(_iter_local_model_candidates()[:6])
+        raise RuntimeError(
+            "No model found. Mount MODEL_DIR so one of these exists: "
+            f"{searched} ... "
+            "Or set MLFLOW_TRACKING_URI (with S3 env vars for artifact download). "
+            "Or MOCK_MODE=true."
+        )
 
 app = FastAPI(title="SmartQueue LightGBM Serving", version=MODEL_VERSION)
 session_lock = threading.Lock()

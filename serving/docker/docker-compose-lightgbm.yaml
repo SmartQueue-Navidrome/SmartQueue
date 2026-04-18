@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   fastapi_lgbm:
     build:
@@ -11,9 +9,13 @@ services:
     volumes:
       - ${MODEL_DIR:-../model_artifacts}:/models:ro
     environment:
+      # Prefer a local file under MODEL_DIR (mount). Tries smartqueue_lgbm.txt then ranking_model_latest.pkl.
       - LOCAL_MODEL_PATH=/models/smartqueue_lgbm.txt
+      - SMARTQUEUE_MODEL_PATHS=/models/ranking_model_latest.pkl
       - MODEL_VERSION=${MODEL_VERSION:-lightgbm_v4}
-      - MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI:-http://129.114.24.226:30500}
+      # Leave MLflow unset for Docker Compose so serving uses /models only.
+      # To use MLflow from this VM, set MLFLOW_TRACKING_URI and S3 creds (see architecture.md).
+      - MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI:-}
       - MODEL_URI=${MODEL_URI:-runs:/b5cd1cdfbc3649008ed6bd1355e36004/model}
       - UVICORN_PORT=8000
       - UVICORN_WORKERS=${UVICORN_WORKERS:-1}
