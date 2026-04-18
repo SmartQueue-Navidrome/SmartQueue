@@ -86,6 +86,26 @@ app = FastAPI(title="SmartQueue LightGBM Serving", version=MODEL_VERSION)
 session_lock = threading.Lock()
 active_sessions = {}
 
+SESSION_TTL_SECONDS = 300
+
+
+def _reap_stale_sessions():
+    while True:
+        time.sleep(60)
+        cutoff = datetime.now(timezone.utc).timestamp() - SESSION_TTL_SECONDS
+        with session_lock:
+            stale = [
+                sid for sid, data in active_sessions.items()
+                if datetime.fromisoformat(data["last_seen_at"]).timestamp() < cutoff
+            ]
+            for sid in stale:
+                del active_sessions[sid]
+            if stale:
+                ACTIVE_SESSIONS_GAUGE.set(len(active_sessions))
+
+
+threading.Thread(target=_reap_stale_sessions, daemon=True).start()
+
 REQUEST_COUNT = Counter(
     "http_requests_total",
     "Total HTTP requests",
@@ -153,20 +173,8 @@ class QueueResponse(BaseModel):
     ranked_songs: List[RankedSong]
 
 
-class SessionStartRequest(BaseModel):
-    session_id: str
-    user_id: Optional[str] = None
-
-
 class SessionEndRequest(BaseModel):
     session_id: str
-
-
-class SessionResponse(BaseModel):
-    session_id: str
-    active: bool
-    started_at: Optional[str] = None
-    ended_at: Optional[str] = None
 
 
 class SessionActiveResponse(BaseModel):
@@ -292,17 +300,6 @@ def queue(req: QueueRequest):
 def rank(req: QueueRequest):
     return queue(req)
 
-
-@app.post("/session/start", response_model=SessionResponse)
-def session_start(req: SessionStartRequest):
-    now = datetime.now(timezone.utc).isoformat()
-    with session_lock:
-        active_sessions[req.session_id] = {
-            "user_id": req.user_id,
-            "started_at": now,
-            "last_seen_at": now,
-        }
-    return SessionResponse(session_id=req.session_id, active=True, started_at=now)
 
 
 class SessionEndResponse(BaseModel):

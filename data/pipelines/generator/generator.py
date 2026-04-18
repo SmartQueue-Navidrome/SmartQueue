@@ -111,11 +111,13 @@ def call_session_end(session_id: str):
     """Notify serving that a session has finished."""
     if not QUEUE_ENDPOINT:
         return
-    try:
-        base = QUEUE_ENDPOINT.rsplit("/queue", 1)[0]
-        requests.post(f"{base}/session/end", json={"session_id": session_id}, timeout=5)
-    except Exception as e:
-        log.warning(f"session/end failed for {session_id[:8]}... ({e})")
+    base = QUEUE_ENDPOINT.rsplit("/queue", 1)[0]
+    for attempt in range(1, 4):
+        try:
+            requests.post(f"{base}/session/end", json={"session_id": session_id}, timeout=5)
+            return
+        except Exception as e:
+            log.warning(f"session/end failed for {session_id[:8]}... attempt {attempt}/3 ({e})")
 
 
 def call_queue(session_id: str, user_features: dict, candidates: list[dict]) -> list[dict]:
