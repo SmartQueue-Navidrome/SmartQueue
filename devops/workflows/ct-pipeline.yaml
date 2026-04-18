@@ -209,7 +209,7 @@ spec:
                 TIME=$(curl -s -o /dev/null -w "%{time_total}" \
                   -X POST http://smartqueue-serving.smartqueue-canary.svc.cluster.local:8000/queue \
                   -H "Content-Type: application/json" \
-                  -d '{"session_id":"canary-check","user_features":{"skip_rate":0.3,"favorite_genre":"pop","watch_time_avg":45.2},"candidate_songs":[{"video_id":"v001","release_year":2023,"context_segment":"morning","genre":"pop","subgenre":"dance_pop"}]}')
+                  -d '{"session_id":"canary-check","user_features":{"user_skip_rate":0.3,"user_favorite_genre_encoded":5,"user_watch_time_avg":45.2},"candidate_songs":[{"video_id":"v001","release_year":2023,"context_segment":0,"genre_encoded":5,"subgenre_encoded":10}]}')
                 echo "Latency: ${TIME}s"
                 if echo "$TIME" | awk '{exit ($1 > 2.0) ? 0 : 1}'; then
                   echo "ERROR: Canary latency too high: ${TIME}s > 2.0s"
