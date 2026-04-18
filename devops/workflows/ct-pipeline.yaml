@@ -14,8 +14,6 @@ spec:
     templates:
       - name: ct-main
         steps:
-          - - name: generate-feedback
-              template: generate-feedback
           - - name: retrain-data
               template: retrain-data
           - - name: train-model
@@ -70,30 +68,6 @@ spec:
                     value: "runs:/{{steps.train-model.outputs.parameters.run-id}}/model"
                   - name: model-version
                     value: "v{{steps.train-model.outputs.parameters.run-id}}"
-
-      - name: generate-feedback
-        container:
-          image: node1:5000/smartqueue-data:v1
-          command: [python, generator.py]
-          env:
-            - name: QUEUE_ENDPOINT
-              value: http://smartqueue-serving.smartqueue-prod.svc.cluster.local:8000/queue
-            - name: LOCAL_MODE
-              value: "false"
-            - name: S3_ENDPOINT
-              value: https://chi.tacc.chameleoncloud.org:7480
-            - name: S3_BUCKET
-              value: ObjStore_proj13
-            - name: AWS_ACCESS_KEY_ID
-              valueFrom:
-                secretKeyRef:
-                  name: s3-secret
-                  key: AWS_ACCESS_KEY_ID
-            - name: AWS_SECRET_ACCESS_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: s3-secret
-                  key: AWS_SECRET_ACCESS_KEY
 
       - name: retrain-data
         container:

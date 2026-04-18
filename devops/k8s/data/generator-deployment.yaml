@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: smartqueue-generator
+  namespace: smartqueue-prod
+  labels:
+    app: smartqueue-generator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: smartqueue-generator
+  template:
+    metadata:
+      labels:
+        app: smartqueue-generator
+    spec:
+      containers:
+        - name: generator
+          image: node1:5000/smartqueue-data:v1
+          command: [python, generator.py]
+          env:
+            - name: QUEUE_ENDPOINT
+              value: http://smartqueue-serving.smartqueue-prod.svc.cluster.local:8000/queue
+            - name: LOCAL_MODE
+              value: "false"
+            - name: S3_ENDPOINT
+              value: https://chi.tacc.chameleoncloud.org:7480
+            - name: S3_BUCKET
+              value: ObjStore_proj13
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: AWS_SECRET_ACCESS_KEY
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+      restartPolicy: Always
