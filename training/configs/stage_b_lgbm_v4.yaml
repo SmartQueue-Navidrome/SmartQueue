@@ -4,7 +4,7 @@
 # These user features better reflect real serving behavior.
 model_type: "lightgbm"
 data_path: "/data/train.parquet"
-max_samples: 200000
+max_samples: 2000000
 random_seed: 42
 train_ratio: 0.8
 num_boost_round: 300
