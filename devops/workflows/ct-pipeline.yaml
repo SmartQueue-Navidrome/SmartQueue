@@ -18,6 +18,10 @@ spec:
               template: retrain-data
           - - name: train-model
               template: train-model
+              arguments:
+                parameters:
+                  - name: data-path
+                    value: "{{steps.retrain-data.outputs.parameters.data-path}}"
           - - name: evaluate-model
               template: evaluate-model
               arguments:
@@ -72,7 +76,16 @@ spec:
       - name: retrain-data
         container:
           image: node1:5000/smartqueue-data:v1
-          command: [python, retrain.py]
+          command: [sh, -c]
+          args:
+            - |
+              python retrain.py
+              python -c "
+              from datetime import datetime, timezone, timedelta
+              d = (datetime.now(timezone.utc) - timedelta(days=1)).strftime('%Y%m%d')
+              with open('/tmp/data_path.txt', 'w') as f:
+                  f.write(f'retrain/v{d}/train.parquet')
+              "
           env:
             - name: S3_ENDPOINT
               value: https://chi.tacc.chameleoncloud.org:7480
@@ -88,13 +101,31 @@ spec:
                 secretKeyRef:
                   name: s3-secret
                   key: AWS_SECRET_ACCESS_KEY
+        outputs:
+          parameters:
+            - name: data-path
+              valueFrom:
+                path: /tmp/data_path.txt
 
       - name: train-model
+        inputs:
+          parameters:
+            - name: data-path
         container:
           image: node1:5000/smartqueue-training:v1
           command: [sh, -c]
           args:
             - |
+              python -c "
+              import boto3, os
+              s3 = boto3.client('s3',
+                  endpoint_url=os.environ['S3_ENDPOINT'],
+                  aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
+                  aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'])
+              key = '{{inputs.parameters.data-path}}'
+              s3.download_file(os.environ['S3_BUCKET'], key, '/tmp/retrain_train.parquet')
+              print(f'Downloaded s3://{os.environ[\"S3_BUCKET\"]}/{key} -> /tmp/retrain_train.parquet')
+              "
               python train_ranking_processed.py /app/configs/stage_b_lgbm_v4.yaml
               python -c "
               import mlflow, os
@@ -106,6 +137,12 @@ spec:
                   f.write(run_id)
               "
           env:
+            - name: DATA_PATH
+              value: /tmp/retrain_train.parquet
+            - name: S3_ENDPOINT
+              value: https://chi.tacc.chameleoncloud.org:7480
+            - name: S3_BUCKET
+              value: ObjStore_proj13
             - name: MLFLOW_TRACKING_URI
               value: http://mlflow.smartqueue-platform.svc.cluster.local:5000
             - name: MLFLOW_S3_ENDPOINT_URL
