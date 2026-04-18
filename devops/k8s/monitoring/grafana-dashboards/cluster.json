@@ -1,267 +1,413 @@
 {
-  "dashboard": {
-    "uid": "smartqueue-cluster",
-    "title": "SmartQueue - Cluster Infrastructure",
-    "tags": ["smartqueue"],
-    "refresh": "30s",
-    "schemaVersion": 36,
-    "version": 1,
-    "timezone": "browser",
-    "time": {
-      "from": "now-1h",
-      "to": "now"
-    },
-    "panels": [
-      {
-        "id": 1,
-        "title": "Node CPU Usage",
-        "type": "timeseries",
-        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
-        "datasource": { "type": "prometheus", "uid": "${datasource}" },
-        "fieldConfig": {
-          "defaults": {
-            "unit": "percent",
-            "min": 0,
-            "max": 100,
-            "thresholds": {
-              "mode": "absolute",
-              "steps": [
-                { "color": "green", "value": null },
-                { "color": "yellow", "value": 70 },
-                { "color": "red", "value": 85 }
-              ]
-            }
-          },
-          "overrides": []
-        },
-        "options": {
-          "tooltip": { "mode": "multi" },
-          "legend": { "displayMode": "list", "placement": "bottom" }
-        },
-        "targets": [
-          {
-            "expr": "100 - (avg by(instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
-            "legendFormat": "{{instance}}",
-            "refId": "A"
-          }
-        ]
+  "uid": "smartqueue-cluster",
+  "title": "SmartQueue - Cluster Infrastructure",
+  "tags": [
+    "smartqueue"
+  ],
+  "refresh": "30s",
+  "schemaVersion": 36,
+  "version": 1,
+  "timezone": "browser",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Node CPU Usage",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
       },
-      {
-        "id": 2,
-        "title": "Node Memory Usage",
-        "type": "timeseries",
-        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
-        "datasource": { "type": "prometheus", "uid": "${datasource}" },
-        "fieldConfig": {
-          "defaults": {
-            "unit": "percent",
-            "min": 0,
-            "max": 100,
-            "thresholds": {
-              "mode": "absolute",
-              "steps": [
-                { "color": "green", "value": null },
-                { "color": "yellow", "value": 70 },
-                { "color": "red", "value": 85 }
-              ]
-            }
-          },
-          "overrides": []
-        },
-        "options": {
-          "tooltip": { "mode": "multi" },
-          "legend": { "displayMode": "list", "placement": "bottom" }
-        },
-        "targets": [
-          {
-            "expr": "(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100",
-            "legendFormat": "{{instance}}",
-            "refId": "A"
-          }
-        ]
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
       },
-      {
-        "id": 3,
-        "title": "Pod Status - Running",
-        "type": "stat",
-        "gridPos": { "h": 4, "w": 6, "x": 0, "y": 8 },
-        "datasource": { "type": "prometheus", "uid": "${datasource}" },
-        "fieldConfig": {
-          "defaults": {
-            "unit": "short",
-            "color": { "mode": "thresholds" },
-            "thresholds": {
-              "mode": "absolute",
-              "steps": [
-                { "color": "green", "value": null }
-              ]
-            }
-          },
-          "overrides": []
-        },
-        "options": {
-          "reduceOptions": { "calcs": ["lastNotNull"] },
-          "orientation": "auto",
-          "textMode": "auto",
-          "colorMode": "background"
-        },
-        "targets": [
-          {
-            "expr": "count(kube_pod_status_phase{phase=\"Running\"})",
-            "legendFormat": "Running Pods",
-            "refId": "A"
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 70
+              },
+              {
+                "color": "red",
+                "value": 85
+              }
+            ]
           }
-        ]
+        },
+        "overrides": []
       },
-      {
-        "id": 4,
-        "title": "Pod Status - Pending",
-        "type": "stat",
-        "gridPos": { "h": 4, "w": 6, "x": 6, "y": 8 },
-        "datasource": { "type": "prometheus", "uid": "${datasource}" },
-        "fieldConfig": {
-          "defaults": {
-            "unit": "short",
-            "color": { "mode": "thresholds" },
-            "thresholds": {
-              "mode": "absolute",
-              "steps": [
-                { "color": "green", "value": null },
-                { "color": "yellow", "value": 1 },
-                { "color": "red", "value": 5 }
-              ]
-            }
-          },
-          "overrides": []
+      "options": {
+        "tooltip": {
+          "mode": "multi"
         },
-        "options": {
-          "reduceOptions": { "calcs": ["lastNotNull"] },
-          "orientation": "auto",
-          "textMode": "auto",
-          "colorMode": "background"
-        },
-        "targets": [
-          {
-            "expr": "count(kube_pod_status_phase{phase=\"Pending\"}) or vector(0)",
-            "legendFormat": "Pending Pods",
-            "refId": "A"
-          }
-        ]
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
       },
-      {
-        "id": 5,
-        "title": "Pod Restarts (SmartQueue namespaces, last 1h)",
-        "type": "timeseries",
-        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
-        "datasource": { "type": "prometheus", "uid": "${datasource}" },
-        "fieldConfig": {
-          "defaults": {
-            "unit": "short",
-            "thresholds": {
-              "mode": "absolute",
-              "steps": [
-                { "color": "green", "value": null },
-                { "color": "red", "value": 3 }
-              ]
-            }
-          },
-          "overrides": []
-        },
-        "options": {
-          "tooltip": { "mode": "multi" },
-          "legend": { "displayMode": "list", "placement": "bottom" }
-        },
-        "targets": [
-          {
-            "expr": "increase(kube_pod_container_status_restarts_total{namespace=~\"smartqueue.*\"}[1h])",
-            "legendFormat": "{{namespace}}/{{pod}}",
-            "refId": "A"
-          }
-        ]
-      },
-      {
-        "id": 6,
-        "title": "PVC Usage",
-        "type": "gauge",
-        "gridPos": { "h": 8, "w": 6, "x": 0, "y": 12 },
-        "datasource": { "type": "prometheus", "uid": "${datasource}" },
-        "fieldConfig": {
-          "defaults": {
-            "unit": "percent",
-            "min": 0,
-            "max": 100,
-            "thresholds": {
-              "mode": "absolute",
-              "steps": [
-                { "color": "green", "value": null },
-                { "color": "yellow", "value": 70 },
-                { "color": "red", "value": 80 }
-              ]
-            }
-          },
-          "overrides": []
-        },
-        "options": {
-          "reduceOptions": { "calcs": ["lastNotNull"] },
-          "orientation": "auto",
-          "showThresholdLabels": false,
-          "showThresholdMarkers": true
-        },
-        "targets": [
-          {
-            "expr": "kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes * 100",
-            "legendFormat": "{{persistentvolumeclaim}}",
-            "refId": "A"
-          }
-        ]
-      },
-      {
-        "id": 7,
-        "title": "Node Disk Usage",
-        "type": "timeseries",
-        "gridPos": { "h": 8, "w": 6, "x": 6, "y": 12 },
-        "datasource": { "type": "prometheus", "uid": "${datasource}" },
-        "fieldConfig": {
-          "defaults": {
-            "unit": "percent",
-            "min": 0,
-            "max": 100,
-            "thresholds": {
-              "mode": "absolute",
-              "steps": [
-                { "color": "green", "value": null },
-                { "color": "yellow", "value": 70 },
-                { "color": "red", "value": 85 }
-              ]
-            }
-          },
-          "overrides": []
-        },
-        "options": {
-          "tooltip": { "mode": "multi" },
-          "legend": { "displayMode": "list", "placement": "bottom" }
-        },
-        "targets": [
-          {
-            "expr": "100 - (node_filesystem_avail_bytes{mountpoint=\"/\",fstype!=\"tmpfs\"} / node_filesystem_size_bytes{mountpoint=\"/\",fstype!=\"tmpfs\"} * 100)",
-            "legendFormat": "{{instance}}",
-            "refId": "A"
-          }
-        ]
-      }
-    ],
-    "templating": {
-      "list": [
+      "targets": [
         {
-          "name": "datasource",
-          "type": "datasource",
-          "pluginId": "prometheus",
-          "label": "Datasource",
-          "hide": 0,
-          "refresh": 1,
-          "current": {}
+          "expr": "100 - (avg by(instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+          "legendFormat": "{{instance}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Node Memory Usage",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 70
+              },
+              {
+                "color": "red",
+                "value": 85
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "expr": "(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100",
+          "legendFormat": "{{instance}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Pod Status - Running",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background"
+      },
+      "targets": [
+        {
+          "expr": "count(kube_pod_status_phase{phase=\"Running\"})",
+          "legendFormat": "Running Pods",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Pod Status - Pending",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background"
+      },
+      "targets": [
+        {
+          "expr": "count(kube_pod_status_phase{phase=\"Pending\"}) or vector(0)",
+          "legendFormat": "Pending Pods",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Pod Restarts (SmartQueue namespaces, last 1h)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 3
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "expr": "increase(kube_pod_container_status_restarts_total{namespace=~\"smartqueue.*\"}[1h])",
+          "legendFormat": "{{namespace}}/{{pod}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "PVC Usage",
+      "type": "gauge",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 12
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 70
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "orientation": "auto",
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "targets": [
+        {
+          "expr": "kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes * 100",
+          "legendFormat": "{{persistentvolumeclaim}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Node Disk Usage",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 6,
+        "y": 12
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 70
+              },
+              {
+                "color": "red",
+                "value": 85
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "expr": "100 - (node_filesystem_avail_bytes{mountpoint=\"/\",fstype!=\"tmpfs\"} / node_filesystem_size_bytes{mountpoint=\"/\",fstype!=\"tmpfs\"} * 100)",
+          "legendFormat": "{{instance}}",
+          "refId": "A"
         }
       ]
     }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "pluginId": "prometheus",
+        "label": "Datasource",
+        "hide": 0,
+        "refresh": 1,
+        "current": {}
+      }
+    ]
   }
 }

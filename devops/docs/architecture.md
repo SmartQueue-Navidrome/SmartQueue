@@ -39,6 +39,9 @@ Only node1 has a public IP. Workers access the internet through NAT masquerade o
 | Serving (canary) | `http://129.114.24.226:30802` | NodePort 30802 |
 | Traefik Gateway | `http://129.114.24.226:30080` | NodePort 30080 |
 | Traefik Dashboard | `http://129.114.24.226:30088` | NodePort 30088 |
+| Grafana | `http://129.114.24.226:30300` | NodePort 30300 |
+| Prometheus | `http://129.114.24.226:30090` | NodePort 30090 |
+| AlertManager | `http://129.114.24.226:30093` | NodePort 30093 |
 
 ### Cluster-internal DNS (for inter-service communication)
 
@@ -250,6 +253,41 @@ Secrets are created by `devops/scripts/create-secrets.sh` and exist in all names
 
 No secrets are stored in Git.
 
+## Monitoring
+
+Deployed via kube-prometheus-stack Helm chart into the `monitoring` namespace.
+
+| Component | Access | Purpose |
+|-----------|--------|---------|
+| Grafana | `http://129.114.24.226:30300` (admin / smartqueue) | Dashboards and visualization |
+| Prometheus | `http://129.114.24.226:30090` | Metrics collection and alerting engine |
+| AlertManager | `http://129.114.24.226:30093` | Alert routing and notification |
+| Node Exporter | (on all 3 nodes) | System-level metrics (CPU, memory, disk, network) |
+| kube-state-metrics | (cluster-internal) | K8s object state metrics |
+
+### Custom alert rules (`k8s/monitoring/prometheus-rules.yaml`)
+
+| Alert | Condition | Severity |
+|-------|-----------|----------|
+| NodeHighCPU | CPU > 85% for 5min | warning |
+| NodeHighMemory | Memory > 85% for 5min | warning |
+| NodeDiskPressure | Root disk > 80% for 5min | warning |
+| PodCrashLooping | > 3 restarts in 10min | critical |
+| PVCNearFull | PVC usage > 80% for 5min | warning |
+| ServingDown | Serving endpoint unreachable for 1min | critical |
+| HPAMaxedOut | HPA at max replicas for 10min | warning |
+
+### Custom Grafana dashboards
+
+- **SmartQueue - Cluster Infrastructure**: Node CPU/memory/disk usage, pod status (running/pending), pod restarts, PVC usage
+- **SmartQueue - Serving Performance**: Container CPU/memory per serving pod, HPA replica count, HPA CPU target vs actual, pods per namespace
+
+Plus 27 built-in dashboards from kube-prometheus-stack (K8s resources, networking, node exporter, etc.).
+
+### ServiceMonitor
+
+A ServiceMonitor (`k8s/monitoring/servicemonitor-serving.yaml`) scrapes the serving endpoints across all three environments (prod, staging, canary) every 15s.
+
 ## Infrastructure Provisioning
 
 ### Terraform (`devops/tf/kvm/`)
@@ -319,30 +357,26 @@ kubectl get configmap model-audit-log -n smartqueue-prod -o jsonpath='{.data.log
 
 ## Integration Status — What Each Role Needs to Do
 
-### Current state
+### Current state (updated 2026-04-18)
 
-| Component | Status | Issue |
+| Component | Status | Notes |
 |-----------|--------|-------|
-| K8s cluster (3 nodes) | Running | - |
+| K8s cluster (3 nodes, 31Gi RAM each) | Running | - |
 | Navidrome | Running | Missing SmartQueue env vars + custom image |
 | PostgreSQL | Running | - |
-| MLflow | Running | - |
+| MLflow | Running | 7 training runs, best val_auc=0.8495 |
 | Traefik Gateway | Running | - |
 | ArgoCD | Running | - |
 | Argo Workflows | Running | - |
-| Serving (prod/staging/canary) | CrashLoopBackOff | MODEL_URI is placeholder — no trained model deployed yet |
-| CT pipeline | Deployed | Cannot run end-to-end until data + training images work |
-| Prod health rollback | Running | Health checks fail (expected — serving not up) |
+| Prometheus + Grafana | Running | Grafana(:30300), Prometheus(:30090), AlertManager(:30093) |
+| Serving (prod/staging/canary) | CrashLoopBackOff | Waiting for model deployment with real MLflow run ID |
+| CT pipeline | Deployed | All 4 images in registry. Ready for end-to-end test once serving is up |
+| Prod health rollback | Running | Health checks fail (expected — serving not up yet) |
+| Docker images | All built | smartqueue-data, smartqueue-mlflow, smartqueue-serving, smartqueue-training |
 
 ### Serving team
 
-1. **Confirm serving image works with a real model**
-   - Current image `node1:5000/smartqueue-serving:v1` is built from `serving/docker/Dockerfile.lightgbm`
-   - It crashes because `MODEL_URI` points to a non-existent MLflow run
-   - Once Training has a model, provide the MLflow run ID so DevOps can deploy it
-   - Or: test locally with `docker run -e MODEL_URI=runs:/<run-id>/model -e MLFLOW_TRACKING_URI=http://129.114.24.226:30500 node1:5000/smartqueue-serving:v1`
-
-2. **Custom Navidrome image**
+1. **Custom Navidrome image**
    - Current deployment uses stock `deluan/navidrome:0.53.3`
    - J3 requires SmartQueue integrated into Navidrome UI
    - Need: image name/tag or Dockerfile for the custom Navidrome build
@@ -357,47 +391,31 @@ kubectl get configmap model-audit-log -n smartqueue-prod -o jsonpath='{.data.log
          value: "30s"
      ```
 
-3. **`/active-sessions` endpoint**
+2. **`/active-sessions` endpoint**
    - Navidrome UI will poll this every 3s for the live dashboard
    - Confirm this endpoint exists in the serving app and returns the expected format
 
 ### Training team
 
-1. **Train a model and provide the MLflow run ID**
-   - MLflow is live at `http://129.114.24.226:30500` (cluster-internal: `mlflow.smartqueue-platform.svc.cluster.local:5000`)
-   - Training image `node1:5000/smartqueue-training:v1` is built and available
-   - Verify training works: SSH to node1, run the training job, confirm the run appears in MLflow
-   - Once a model passes quality gates, share the run ID with DevOps
-
-2. **Confirm quality threshold**
-   - CT pipeline uses `val_auc >= 0.65` as the gate in `evaluate-model` step
-   - Is this threshold reasonable for LightGBM on the XITE dataset?
-
-3. **Verify training image**
-   - `node1:5000/smartqueue-training:v1` runs `train_ranking_renew.py --config /app/configs/stage_b_lgbm_v4.yaml`
-   - Confirm this config file and script work correctly inside the container
+- ~~Train a model~~ Done — 7 runs in MLflow, best run `b5cd1cdfbc3649008ed6bd1355e36004` (val_auc=0.8495)
+- ~~Verify training image~~ Done — image works, multiple successful runs
+- ~~Confirm quality threshold~~ Done — val_auc=0.85 >> 0.65 threshold
 
 ### Data team
 
-1. **Fix data image Dockerfile**
-   - `node1:5000/smartqueue-data:v1` build fails:
-     ```
-     COPY pipeline2_retrain/feedback_checks.py .
-     ERROR: not found
-     ```
-   - Fix the Dockerfile path or add the missing file, then notify DevOps to rebuild
+- ~~Fix data image~~ Done — was a build context issue, image built and pushed successfully
+- **Verify generator works against live serving** — once serving is deployed with real model
+- **Data quality checks** — M3 requires data quality evaluation at ingestion/training/production. Great Expectations added to requirements; need integration into pipeline
 
-2. **Verify generator works against live serving**
-   - Generator should POST to `http://smartqueue-serving.smartqueue-prod.svc.cluster.local:8000/queue`
-   - Once serving is up, test the generator container in the cluster
+### Next steps
 
-3. **Data quality checks**
-   - M3 requires data quality evaluation at ingestion, training set compilation, and production inference
-   - If using Great Expectations or similar, provide the integration point so DevOps can add it to the CT pipeline
+1. **Deploy model to three environments** — use Training's best run ID to get serving pods running
+2. **End-to-end CT pipeline test** — all images ready, trigger a full run
+3. **Custom Navidrome image** — waiting on Serving team
 
 ### Joint — end-to-end test
 
-Once all images work individually, trigger a full CT pipeline run:
+Once serving is deployed, trigger a full CT pipeline run:
 
 ```bash
 # SSH to node1

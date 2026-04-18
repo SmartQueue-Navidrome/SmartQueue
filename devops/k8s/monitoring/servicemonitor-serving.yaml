@@ -1,0 +1,20 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: smartqueue-serving
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  namespaceSelector:
+    matchNames:
+      - smartqueue-prod
+      - smartqueue-staging
+      - smartqueue-canary
+  selector:
+    matchLabels:
+      app: smartqueue-serving
+  endpoints:
+    - port: "8000"
+      path: /health
+      interval: 15s

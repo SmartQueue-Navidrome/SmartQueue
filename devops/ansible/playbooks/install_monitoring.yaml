@@ -32,6 +32,9 @@
     - name: Apply custom PrometheusRules
       command: kubectl apply -f /home/cc/k8s/monitoring/prometheus-rules.yaml
 
+    - name: Apply ServiceMonitor for serving
+      command: kubectl apply -f /home/cc/k8s/monitoring/servicemonitor-serving.yaml
+
     - name: Create Grafana dashboard ConfigMap (cluster)
       shell: |
         kubectl create configmap grafana-dashboard-cluster \
