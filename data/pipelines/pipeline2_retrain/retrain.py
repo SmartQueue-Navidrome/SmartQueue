@@ -72,16 +72,20 @@ def load_feedback(feedback_dir: Path, date_str: str) -> pd.DataFrame:
             raise FileNotFoundError(f"No feedback files found for date {date_str} in {feedback_dir}")
         print(f"  Found {len(files):,} feedback files for {date_str} (local)")
     else:
-        # Production mode: download from S3
-        objects = s3.list_objects(prefix=f"feedback/{date_str}_")
+        # Production mode: parallel download from S3 feedback/{date_str}/
+        from concurrent.futures import ThreadPoolExecutor
+        objects = s3.list_objects(prefix=f"feedback/{date_str}/")
         if not objects:
             raise FileNotFoundError(f"No feedback files found on S3 for date {date_str}")
-        print(f"  Found {len(objects):,} feedback files for {date_str} (S3)")
+        print(f"  Found {len(objects):,} feedback files for {date_str} (S3), downloading ...")
         feedback_dir.mkdir(parents=True, exist_ok=True)
-        for obj in objects:
+
+        def _download(obj):
             filename = Path(obj["Key"]).name
-            local_path = feedback_dir / filename
-            s3.download_file(obj["Key"], local_path)
+            s3.download_file(obj["Key"], feedback_dir / filename)
+
+        with ThreadPoolExecutor(max_workers=32) as pool:
+            list(pool.map(_download, objects))
         files = list(feedback_dir.glob(f"{date_str}_*.jsonl"))
 
     records = []

@@ -58,7 +58,7 @@ S3_BUCKET          = os.getenv("S3_BUCKET", "ObjStore_proj13")
 LOCAL_MODE         = os.getenv("LOCAL_MODE", "true").lower() == "true"
 CONCURRENCY        = int(os.getenv("CONCURRENCY", "10"))
 CANDIDATES_PER_REQ = int(os.getenv("CANDIDATES_PER_REQ", "10"))
-FEEDBACK_DELAY     = float(os.getenv("FEEDBACK_DELAY", "1.0"))
+FEEDBACK_DELAY     = float(os.getenv("FEEDBACK_DELAY", "3.0"))
 
 SCRIPT_DIR    = Path(__file__).resolve().parent
 # Docker default: /app/data
@@ -226,7 +226,7 @@ async def process_session(
                 f.write(json.dumps(rec) + "\n")
 
         # Upload to S3 then delete local file
-        s3_key = f"feedback/{filename}"
+        s3_key = f"feedback/{date_str}/{filename}"
         if not LOCAL_MODE:
             await loop.run_in_executor(None, upload_feedback, local_path, s3_key)
             local_path.unlink()
