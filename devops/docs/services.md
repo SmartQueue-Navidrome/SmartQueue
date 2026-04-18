@@ -48,8 +48,7 @@
 |---------|-------|
 | Endpoint | `https://chi.tacc.chameleoncloud.org:7480` |
 | Bucket | `ObjStore_proj13` |
-| Access Key | `f159636fcd5e41c3800670cf858ce90c` |
-| Secret Key | `6d394c3b6ccd43a8b97235252afbcf37` |
+| Credentials | Stored in K8S secret `s3-secret` (all namespaces) |
 
 ## SSH Access
 
