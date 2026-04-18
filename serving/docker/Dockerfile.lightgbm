@@ -9,11 +9,12 @@ COPY lightgbm_app/app.py .
 COPY lightgbm_app/start.sh .
 RUN chmod +x /app/start.sh
 
-ENV MLFLOW_TRACKING_URI=http://129.114.25.107:8000
-ENV MODEL_NAME=smartqueue-ranking
-ENV MODEL_STAGE=Production
-ENV MODEL_URI=models:/smartqueue-ranking/Production
-ENV MODEL_VERSION=lightgbm_mlflow
+# Model loading: LOCAL_MODEL_PATH takes priority over MLflow
+# Set LOCAL_MODEL_PATH to load from a mounted volume (no MLflow needed)
+# Or set MLFLOW_TRACKING_URI to load from MLflow registry
+ENV LOCAL_MODEL_PATH=/models/smartqueue_lgbm.txt
+ENV MODEL_VERSION=lightgbm_v4
+ENV MLFLOW_TRACKING_URI=http://129.114.24.226:30500
 
 EXPOSE 8000
 

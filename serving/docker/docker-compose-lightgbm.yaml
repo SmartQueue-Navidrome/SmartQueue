@@ -8,12 +8,12 @@ services:
     container_name: fastapi_lgbm
     ports:
       - "8000:8000"
+    volumes:
+      - ${MODEL_DIR:-../model_artifacts}:/models:ro
     environment:
-      - MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI:-http://129.114.25.107:8000}
-      - MODEL_NAME=${MODEL_NAME:-smartqueue-ranking}
-      - MODEL_STAGE=${MODEL_STAGE:-Production}
-      - MODEL_URI=${MODEL_URI:-models:/${MODEL_NAME:-smartqueue-ranking}/${MODEL_STAGE:-Production}}
-      - MODEL_VERSION=${MODEL_VERSION:-lightgbm_mlflow}
+      - LOCAL_MODEL_PATH=/models/smartqueue_lgbm.txt
+      - MODEL_VERSION=${MODEL_VERSION:-lightgbm_v4}
+      - MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI:-http://129.114.24.226:30500}
       - UVICORN_PORT=8000
       - UVICORN_WORKERS=${UVICORN_WORKERS:-1}
     restart: unless-stopped
@@ -48,8 +48,8 @@ services:
       - HOST=http://fastapi_lgbm:8000
       - SHARED_DIR=/shared
       - CAPTURE_CONTAINER=fastapi_lgbm
-      - MODEL_PATH_USED=${MODEL_URI:-models:/${MODEL_NAME:-smartqueue-ranking}/${MODEL_STAGE:-Production}}
-      - MODEL_VERSION_USED=${MODEL_VERSION:-lightgbm_mlflow}
+      - MODEL_PATH_USED=${LOCAL_MODEL_PATH:-/models/smartqueue_lgbm.txt}
+      - MODEL_VERSION_USED=${MODEL_VERSION:-lightgbm_v4}
       - UVICORN_WORKERS_USED=${UVICORN_WORKERS:-1}
       - TYPICAL_USERS=${TYPICAL_USERS:-10}
       - TYPICAL_SPAWN_RATE=${TYPICAL_SPAWN_RATE:-2}

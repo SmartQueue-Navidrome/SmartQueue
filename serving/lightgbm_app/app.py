@@ -4,7 +4,7 @@ import time
 from datetime import datetime, timezone
 from typing import List, Optional
 
-import mlflow
+import lightgbm as lgb
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -13,11 +13,13 @@ from pydantic import BaseModel, Field
 from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 from starlette.responses import Response
 
-MLFLOW_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", "http://129.114.25.107:8000")
-MODEL_URI = os.environ.get("MODEL_URI", "models:/smartqueue-ranking/Production")
+# Model loading config - priority: LOCAL_MODEL_PATH > MLflow
+LOCAL_MODEL_PATH = os.environ.get("LOCAL_MODEL_PATH", "")
+MLFLOW_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", "http://129.114.24.226:30500")
+MODEL_URI = os.environ.get("MODEL_URI", "")
 MODEL_NAME = os.environ.get("MODEL_NAME", "smartqueue-ranking")
 MODEL_STAGE = os.environ.get("MODEL_STAGE", "Production")
-MODEL_VERSION = os.environ.get("MODEL_VERSION", "lightgbm_mlflow")
+MODEL_VERSION = os.environ.get("MODEL_VERSION", "lightgbm_v4")
 
 FEATURE_COLUMNS = [
     "release_year",
@@ -31,30 +33,54 @@ FEATURE_COLUMNS = [
 
 MOCK_MODE = os.environ.get("MOCK_MODE", "false").lower() == "true"
 
+
 class _MockModel:
-    """Returns random scores — used when MOCK_MODE=true or MLflow is unreachable."""
+    """Returns random scores — used when MOCK_MODE=true."""
     def predict(self, df):
         import random
         return [round(random.random(), 4) for _ in range(len(df))]
 
-mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
-active_model_uri = MODEL_URI
+
+class _LightGBMWrapper:
+    """Wrapper for native LightGBM model loaded from .txt file."""
+    def __init__(self, model_path: str):
+        self.booster = lgb.Booster(model_file=model_path)
+    
+    def predict(self, df):
+        return self.booster.predict(df)
+
+
+active_model_uri = "none"
 model = None
 
 if MOCK_MODE:
     model = _MockModel()
     active_model_uri = "mock"
-else:
+elif LOCAL_MODEL_PATH and os.path.exists(LOCAL_MODEL_PATH):
+    # Load from local file (no MLflow needed)
+    print(f"[model] Loading from local file: {LOCAL_MODEL_PATH}")
+    model = _LightGBMWrapper(LOCAL_MODEL_PATH)
+    active_model_uri = f"local:{LOCAL_MODEL_PATH}"
+    print(f"[model] Loaded successfully from {LOCAL_MODEL_PATH}")
+elif MLFLOW_TRACKING_URI:
+    # Fall back to MLflow if configured
+    import mlflow
+    mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
     try:
         active_model_uri = f"models:/{MODEL_NAME}/{MODEL_STAGE}"
         model = mlflow.pyfunc.load_model(active_model_uri)
+        print(f"[model] Loaded from MLflow: {active_model_uri}")
     except Exception:
         try:
             active_model_uri = MODEL_URI
             model = mlflow.pyfunc.load_model(active_model_uri)
+            print(f"[model] Loaded from MLflow fallback: {active_model_uri}")
         except Exception as e:
-            print(f"[warn] MLflow unavailable ({e}). Set MOCK_MODE=true to run without MLflow.")
+            print(f"[warn] MLflow unavailable ({e}). Set MOCK_MODE=true or LOCAL_MODEL_PATH.")
             raise
+else:
+    print("[error] No model source configured. Set LOCAL_MODEL_PATH or MLFLOW_TRACKING_URI.")
+    raise RuntimeError("No model source configured")
 
 app = FastAPI(title="SmartQueue LightGBM Serving", version=MODEL_VERSION)
 session_lock = threading.Lock()
