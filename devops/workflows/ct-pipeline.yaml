@@ -121,8 +121,16 @@ spec:
           command: [sh, -c]
           args:
             - |
-              python train_ranking_renew.py --config /app/configs/stage_b_lgbm_v4.yaml
-              cat /tmp/run_id.txt
+              python train_ranking_processed.py /app/configs/stage_b_lgbm_v4.yaml
+              python -c "
+              import mlflow, os
+              mlflow.set_tracking_uri(os.environ['MLFLOW_TRACKING_URI'])
+              runs = mlflow.search_runs(experiment_names=['smartqueue-stage-b'], order_by=['start_time DESC'], max_results=1)
+              run_id = runs.iloc[0].run_id
+              print(f'Latest run_id: {run_id}')
+              with open('/tmp/run_id.txt', 'w') as f:
+                  f.write(run_id)
+              "
           env:
             - name: MLFLOW_TRACKING_URI
               value: http://mlflow.smartqueue-platform.svc.cluster.local:5000
