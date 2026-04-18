@@ -15,6 +15,7 @@ RUN chmod +x /app/start.sh
 ENV LOCAL_MODEL_PATH=/models/smartqueue_lgbm.txt
 ENV MODEL_VERSION=lightgbm_v4
 ENV MLFLOW_TRACKING_URI=http://129.114.24.226:30500
+ENV MODEL_URI=runs:/b5cd1cdfbc3649008ed6bd1355e36004/model
 
 EXPOSE 8000
 

@@ -14,6 +14,7 @@ services:
       - LOCAL_MODEL_PATH=/models/smartqueue_lgbm.txt
       - MODEL_VERSION=${MODEL_VERSION:-lightgbm_v4}
       - MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI:-http://129.114.24.226:30500}
+      - MODEL_URI=${MODEL_URI:-runs:/b5cd1cdfbc3649008ed6bd1355e36004/model}
       - UVICORN_PORT=8000
       - UVICORN_WORKERS=${UVICORN_WORKERS:-1}
     restart: unless-stopped

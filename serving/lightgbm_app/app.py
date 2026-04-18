@@ -16,7 +16,7 @@ from starlette.responses import Response
 # Model loading config - priority: LOCAL_MODEL_PATH > MLflow
 LOCAL_MODEL_PATH = os.environ.get("LOCAL_MODEL_PATH", "")
 MLFLOW_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", "http://129.114.24.226:30500")
-MODEL_URI = os.environ.get("MODEL_URI", "")
+MODEL_URI = os.environ.get("MODEL_URI", "runs:/b5cd1cdfbc3649008ed6bd1355e36004/model")
 MODEL_NAME = os.environ.get("MODEL_NAME", "smartqueue-ranking")
 MODEL_STAGE = os.environ.get("MODEL_STAGE", "Production")
 MODEL_VERSION = os.environ.get("MODEL_VERSION", "lightgbm_v4")
