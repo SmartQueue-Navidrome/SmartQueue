@@ -92,11 +92,20 @@ No anonymisation step is required because no PII enters the pipeline. This shoul
 
 **Concern:** Model promotions and rollbacks must be traceable so that any decision affecting users can be audited after the fact.
 
-**Mechanism implemented:** _[DevOps to confirm/expand — suggested: all model promotions recorded in MLflow with run_id and timestamp; Argo Workflow logs retained; rollback events logged with reason]_
+**Mechanism implemented:**
 
-From `devops/TODO.md`: DevOps part marked done — audit logging (accountability) + automated rollback (robustness).
+Every model promotion flows through the CT pipeline (Argo Workflows), which provides a complete audit trail:
 
-**Concrete files:** _[DevOps to fill in]_
+1. **MLflow** records each training run with `run_id`, hyperparameters, metrics (`val_auc`), and model artifacts. The `run_id` propagates through every subsequent pipeline step — evaluate, deploy-staging, deploy-canary, deploy-prod — so any production model can be traced back to its exact training run.
+2. **Argo Workflows** retains the full execution history of every CT pipeline run, including step-level status, duration, logs, and failure reasons. Accessible via the Argo Workflows UI (`http://<floating-ip>:30446`).
+3. **ArgoCD** tracks deployment sync history for the platform services, recording what changed, when, and which git commit triggered the sync.
+4. **Rollback logging:** `serving/monitoring/promotion_triggers.py` writes structured JSON logs on every rollback event, including the reason, timestamp, and deploy mode.
+
+**Concrete files:**
+- `devops/workflows/ct-pipeline.yaml` — run_id passed through all steps from train to deploy
+- `serving/monitoring/promotion_triggers.py` — rollback event logging
+- Argo Workflows UI (`NodePort 30446`) — pipeline execution history
+- ArgoCD UI (`NodePort 30443`) — deployment sync audit
 
 ---
 
@@ -113,7 +122,7 @@ From `devops/TODO.md`: DevOps part marked done — audit logging (accountability
 - **Latency gate:** Canary monitor rejects promotion if `/queue` response time exceeds 2.0 seconds.
 - **Manual approval:** `approve-promotion` suspend step in the Argo Workflow requires human sign-off before production deployment.
 - **Fallback model loading:** Serving app (`serving/lightgbm_app/app.py`) tries `LOCAL_MODEL_PATH` → MLflow registry → MLflow run URI in order, ensuring a model is always loaded at startup.
-- **Automated rollback:** _[DevOps to fill in concrete mechanism]_
+- **Automated rollback:** `serving/monitoring/promotion_triggers.py` continuously monitors production metrics (error rate, p95 latency, health endpoint). If thresholds are exceeded (error rate > 2% for 5 min, p95 > 1200ms for 10 min, or 3 consecutive health failures), it triggers `kubectl rollout undo` to revert to the previous deployment revision automatically.
 
 **Concrete files:**
 - `devops/workflows/ct-pipeline.yaml` — evaluate-model, canary-monitor, manual-approval steps
@@ -130,5 +139,5 @@ From `devops/TODO.md`: DevOps part marked done — audit logging (accountability
 | Explainability | Training | ⬜ To fill in | — |
 | Transparency | Serving | ⬜ To confirm | `app.py` `/active-sessions` |
 | Privacy | Data | ✅ Documented | `feature_engineering.py`, `generator.py` |
-| Accountability | DevOps | ⬜ To fill in | — |
-| Robustness | Serving + DevOps | ✅ Mostly done | `ct-pipeline.yaml`, `app.py` |
+| Accountability | DevOps | ✅ Implemented | `ct-pipeline.yaml`, `promotion_triggers.py`, Argo Workflows UI, ArgoCD UI |
+| Robustness | Serving + DevOps | ✅ Implemented | `ct-pipeline.yaml`, `app.py`, `promotion_triggers.py` |
