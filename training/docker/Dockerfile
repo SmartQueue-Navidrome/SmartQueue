@@ -1,9 +1,6 @@
-FROM pytorch/pytorch:2.1.0-cuda12.1-cudnn8-runtime
+FROM python:3.10-slim
 
 RUN pip install --no-cache-dir \
-    lightning \
-    transformers \
-    librosa \
     scikit-learn \
     lightgbm \
     optuna \
@@ -13,6 +10,6 @@ RUN pip install --no-cache-dir \
     numpy \
     pyyaml \
     pyarrow \
-    torchaudio
+    joblib
 
 WORKDIR /workspace
