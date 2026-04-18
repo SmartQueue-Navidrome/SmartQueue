@@ -18,11 +18,13 @@ services:
     command: python generator.py
     env_file:
       - ../.env
+    ports:
+      - "8001:8001"
     environment:
       - DATA_DIR=/app/data
       - LOCAL_MODE=${LOCAL_MODE:-false}
       - CONCURRENCY=${CONCURRENCY:-10}
-      - FEEDBACK_DELAY=${FEEDBACK_DELAY:-1.0}
+      - FEEDBACK_DELAY=${FEEDBACK_DELAY:-3.0}
     volumes:
       - ./processed:/app/data/processed
       - ./feedback:/app/data/feedback

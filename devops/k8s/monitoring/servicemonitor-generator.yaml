@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: smartqueue-generator
+  namespace: smartqueue-prod
+  labels:
+    app: smartqueue-generator
+spec:
+  selector:
+    app: smartqueue-generator
+  ports:
+    - name: metrics
+      port: 8001
+      targetPort: 8001
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: smartqueue-generator
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  namespaceSelector:
+    matchNames:
+      - smartqueue-prod
+  selector:
+    matchLabels:
+      app: smartqueue-generator
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 15s

@@ -38,6 +38,7 @@ import boto3
 import pandas as pd
 import requests
 from dotenv import load_dotenv
+from prometheus_client import Counter, start_http_server
 
 load_dotenv()
 
@@ -68,6 +69,21 @@ FEEDBACK_DIR  = DEFAULT_DATA / "feedback"
 PROCESSED_DIR = DEFAULT_DATA / "processed"
 PROD_PARQUET  = PROCESSED_DIR / "production.parquet"
 S3_PROD_KEY   = "processed/production.parquet"
+METRICS_PORT  = int(os.getenv("METRICS_PORT", "8001"))
+
+
+# ── Prometheus metrics ────────────────────────────────────────────────────────
+
+genre_sessions_total = Counter(
+    "genre_sessions_total",
+    "Total sessions per genre",
+    ["genre"],
+)
+genre_engaged_total = Counter(
+    "genre_engaged_total",
+    "Engaged sessions per genre",
+    ["genre"],
+)
 
 
 # ── S3 helpers ────────────────────────────────────────────────────────────────
@@ -233,6 +249,13 @@ async def process_session(
             await loop.run_in_executor(None, upload_feedback, local_path, s3_key)
             local_path.unlink()
 
+        # Update fairness metrics per genre
+        for _, row in sample.iterrows():
+            genre = str(int(row["genre_encoded"]))
+            genre_sessions_total.labels(genre=genre).inc()
+            if int(row["is_engaged"]):
+                genre_engaged_total.labels(genre=genre).inc()
+
         # Notify serving that this session is done
         await loop.run_in_executor(None, call_session_end, session_id)
 
@@ -280,6 +303,9 @@ def main():
     parser.add_argument("--sessions", type=int, default=0,
                         help="Number of sessions to run per loop (0 = all)")
     args = parser.parse_args()
+
+    start_http_server(METRICS_PORT)
+    log.info(f"Prometheus metrics served on port {METRICS_PORT}")
 
     download_production_parquet()
 

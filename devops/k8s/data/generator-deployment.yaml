@@ -19,6 +19,9 @@ spec:
         - name: generator
           image: node1:5000/smartqueue-data:v1
           command: [python, generator.py]
+          ports:
+            - containerPort: 8001
+              name: metrics
           env:
             - name: QUEUE_ENDPOINT
               value: http://smartqueue-serving.smartqueue-prod.svc.cluster.local:8000/queue
