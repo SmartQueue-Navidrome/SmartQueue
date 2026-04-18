@@ -8,12 +8,11 @@ services:
     container_name: fastapi_lgbm
     ports:
       - "8000:8000"
+    volumes:
+      - ${MODEL_DIR:-../model_artifacts}:/models:ro
     environment:
-      - MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI:-http://129.114.25.107:8000}
-      - MODEL_NAME=${MODEL_NAME:-smartqueue-ranking}
-      - MODEL_STAGE=${MODEL_STAGE:-Production}
-      - MODEL_URI=${MODEL_URI:-models:/${MODEL_NAME:-smartqueue-ranking}/${MODEL_STAGE:-Production}}
-      - MODEL_VERSION=${MODEL_VERSION:-lightgbm_mlflow}
+      - LOCAL_MODEL_PATH=/models/smartqueue_lgbm.txt
+      - MODEL_VERSION=${MODEL_VERSION:-lightgbm_v4}
       - UVICORN_PORT=8000
       - UVICORN_WORKERS=${UVICORN_WORKERS:-1}
     restart: unless-stopped
@@ -62,6 +61,27 @@ services:
       - JUPYTER_ENABLE_LAB=yes
     restart: unless-stopped
 
+  monitor:
+    profiles: ["monitor"]
+    image: python:3.11-slim
+    container_name: smartqueue_monitor
+    working_dir: /app
+    volumes:
+      - ../monitoring:/app
+      - monitor_logs:/logs
+    environment:
+      - PROMETHEUS_URL=http://prometheus:9090
+      - SERVING_URL=http://fastapi_lgbm:8000
+      - ROLLBACK_LOG=/logs/rollback.jsonl
+    depends_on:
+      - prometheus
+      - fastapi_lgbm
+    command: >
+      sh -c "pip install -q -r requirements.txt && 
+             python promotion_triggers.py monitor --interval 60"
+    restart: unless-stopped
+
 volumes:
   prometheus_data:
   grafana_data:
+  monitor_logs:
