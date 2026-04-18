@@ -17,7 +17,7 @@
 | Service | URL | Username | Password | Description |
 |---------|-----|----------|----------|-------------|
 | ArgoCD | `https://129.114.24.226:30443` | admin | `qEfWciesuRbCBgp-` | GitOps continuous deployment, syncs K8S resources from git |
-| Argo Workflows | cluster-internal (port 2746) | — | — | CT pipeline engine, runs daily retrain-train-evaluate-deploy workflow |
+| Argo Workflows | `http://129.114.24.226:30446` | — | — | CT pipeline engine, runs daily retrain-train-evaluate-deploy workflow |
 
 ## Monitoring
 
