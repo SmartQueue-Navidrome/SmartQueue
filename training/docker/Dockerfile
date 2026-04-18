@@ -17,5 +17,5 @@ RUN pip install --no-cache-dir \
     joblib
 
 WORKDIR /app
-COPY train_ranking_processed.py train_ranking_renew.py train_ranking.py ./
+COPY train_ranking_processed.py ./
 COPY configs/ ./configs/
