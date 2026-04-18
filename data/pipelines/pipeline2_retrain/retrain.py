@@ -65,11 +65,25 @@ def compute_user_features(events: list[dict]) -> dict:
 # ── load feedback ─────────────────────────────────────────────────────────────
 
 def load_feedback(feedback_dir: Path, date_str: str) -> pd.DataFrame:
-    files = list(feedback_dir.glob(f"{date_str}_*.jsonl"))
-    if not files:
-        raise FileNotFoundError(f"No feedback files found for date {date_str} in {feedback_dir}")
+    if LOCAL_MODE:
+        # Local mode: read from local feedback dir
+        files = list(feedback_dir.glob(f"{date_str}_*.jsonl"))
+        if not files:
+            raise FileNotFoundError(f"No feedback files found for date {date_str} in {feedback_dir}")
+        print(f"  Found {len(files):,} feedback files for {date_str} (local)")
+    else:
+        # Production mode: download from S3
+        objects = s3.list_objects(prefix=f"feedback/{date_str}_")
+        if not objects:
+            raise FileNotFoundError(f"No feedback files found on S3 for date {date_str}")
+        print(f"  Found {len(objects):,} feedback files for {date_str} (S3)")
+        feedback_dir.mkdir(parents=True, exist_ok=True)
+        for obj in objects:
+            filename = Path(obj["Key"]).name
+            local_path = feedback_dir / filename
+            s3.download_file(obj["Key"], local_path)
+        files = list(feedback_dir.glob(f"{date_str}_*.jsonl"))
 
-    print(f"  Found {len(files):,} feedback files for {date_str}")
     records = []
     for f in files:
         with open(f) as fh:
@@ -283,7 +297,12 @@ def main():
     # 2. Load production.parquet
     print("\n[2/4] Loading production.parquet ...")
     t = time.perf_counter()
-    production_df = pd.read_parquet(processed_dir / "production.parquet")
+    prod_parquet = processed_dir / "production.parquet"
+    if not LOCAL_MODE and not prod_parquet.exists():
+        print("  Downloading production.parquet from S3 ...")
+        processed_dir.mkdir(parents=True, exist_ok=True)
+        s3.download_file("processed/production.parquet", prod_parquet)
+    production_df = pd.read_parquet(prod_parquet)
     print(f"  {len(production_df):,} rows  ({time.perf_counter()-t:.1f}s)")
 
     # 3. Build feedback rows with updated user features
@@ -335,8 +354,19 @@ def main():
         s3_prefix = f"retrain/v{date_str}"
         n = s3.upload_dir(retrain_dir, s3_prefix)
         print(f"  {n} file(s) → s3://{s3.BUCKET}/{s3_prefix}/  ({time.perf_counter()-t:.1f}s)")
+
+        # Clean up local files for this date only
+        print("\n[6/4] Cleaning up local files ...")
+        import shutil
+        feedback_files = list(feedback_dir.glob(f"{date_str}_*.jsonl"))
+        for f in feedback_files:
+            f.unlink()
+        print(f"  Deleted {len(feedback_files)} feedback file(s) for {date_str}")
+        shutil.rmtree(retrain_dir)
+        print(f"  Deleted {retrain_dir}")
+
     else:
-        print("\nLOCAL_MODE=true — skipping S3 upload.")
+        print("\nLOCAL_MODE=true — skipping S3 upload and cleanup.")
 
 
 if __name__ == "__main__":

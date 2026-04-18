@@ -225,9 +225,11 @@ async def process_session(
             for rec in records:
                 f.write(json.dumps(rec) + "\n")
 
-        # Upload to S3
+        # Upload to S3 then delete local file
         s3_key = f"feedback/{filename}"
-        await loop.run_in_executor(None, upload_feedback, local_path, s3_key)
+        if not LOCAL_MODE:
+            await loop.run_in_executor(None, upload_feedback, local_path, s3_key)
+            local_path.unlink()
 
         # Notify serving that this session is done
         await loop.run_in_executor(None, call_session_end, session_id)

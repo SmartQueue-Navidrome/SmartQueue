@@ -52,6 +52,11 @@ def upload_dir(local_dir: Path, s3_prefix: str, bucket: str = BUCKET):
     return uploaded
 
 
+def download_file(s3_key: str, local_path: Path, bucket: str = BUCKET):
+    """Download a single file from S3."""
+    get_client().download_file(bucket, s3_key, str(local_path))
+
+
 def list_objects(prefix: str = "", bucket: str = BUCKET) -> list[dict]:
     """Return list of objects (Key, Size) under a prefix."""
     resp = get_client().list_objects_v2(Bucket=bucket, Prefix=prefix)
