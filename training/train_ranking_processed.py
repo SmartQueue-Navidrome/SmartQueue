@@ -227,7 +227,7 @@ def main():
 
     mlflow.set_experiment("smartqueue-stage-b")
 
-    with mlflow.start_run(log_system_metrics=True):
+    with mlflow.start_run(log_system_metrics=False):
         # Log all config params
         flat_params = {}
         for k, v in cfg.items():
