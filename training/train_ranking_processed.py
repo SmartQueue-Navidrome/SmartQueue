@@ -60,7 +60,7 @@ def load_and_prepare_data(cfg: dict) -> pd.DataFrame:
     Load processed train.parquet memory-safely using pyarrow iter_batches.
     Expects Pipeline 1 output with pre-computed features and label.
     """
-    data_path = cfg["data_path"]
+    data_path = os.environ.get("DATA_PATH") or cfg["data_path"]
     max_samples = cfg.get("max_samples", 200000)
 
     print(f"[data] Loading {max_samples} rows from {data_path}...")
