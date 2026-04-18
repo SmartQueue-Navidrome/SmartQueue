@@ -8,7 +8,7 @@ RUN pip install --no-cache-dir \
     scikit-learn \
     lightgbm \
     optuna \
-    mlflow \
+    "mlflow==2.15.0" \
     boto3 \
     pandas \
     numpy \
@@ -16,4 +16,6 @@ RUN pip install --no-cache-dir \
     pyarrow \
     joblib
 
+
+    
 WORKDIR /workspace
