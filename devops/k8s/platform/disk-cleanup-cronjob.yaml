@@ -1,0 +1,56 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: disk-cleanup
+  namespace: smartqueue-platform
+spec:
+  schedule: "0 1 * * *"
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          hostPID: true
+          nodeSelector:
+            kubernetes.io/hostname: node1
+          tolerations:
+            - key: node.kubernetes.io/disk-pressure
+              operator: Exists
+              effect: NoSchedule
+          containers:
+            - name: cleanup
+              image: docker:24-cli
+              securityContext:
+                privileged: true
+              volumeMounts:
+                - name: docker-sock
+                  mountPath: /var/run/docker.sock
+              command: [sh, -c]
+              args:
+                - |
+                  echo "=== Disk cleanup started ==="
+                  echo "Before:"
+                  df -h / | tail -1
+
+                  # 1. Docker build cache (safe: only removes intermediate build layers)
+                  docker builder prune -af 2>/dev/null || true
+
+                  # 2. Dangling images only (safe: only removes <none> tagged images)
+                  docker image prune -f 2>/dev/null || true
+
+                  # 3. Registry GC (safe: only removes blobs not referenced by any tag)
+                  docker exec registry /bin/registry garbage-collect \
+                    /etc/docker/registry/config.yml --delete-untagged 2>/dev/null || true
+
+                  # 4. Stopped containers
+                  docker container prune -f 2>/dev/null || true
+
+                  echo "After:"
+                  df -h / | tail -1
+                  echo "=== Disk cleanup done ==="
+          volumes:
+            - name: docker-sock
+              hostPath:
+                path: /var/run/docker.sock
+          restartPolicy: OnFailure

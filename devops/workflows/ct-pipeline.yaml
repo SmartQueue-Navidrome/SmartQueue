@@ -8,9 +8,17 @@ spec:
     - "0 2 * * *"
   timezone: "UTC"
   concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
   workflowSpec:
     entrypoint: ct-main
     serviceAccountName: argo-workflow-sa
+    ttlStrategy:
+      secondsAfterCompletion: 86400
+      secondsAfterSuccess: 86400
+      secondsAfterFailure: 172800
+    podGC:
+      strategy: OnWorkflowCompletion
     templates:
       - name: ct-main
         steps:
