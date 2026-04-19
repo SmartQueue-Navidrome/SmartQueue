@@ -279,6 +279,12 @@ docker build -t node1:5000/smartqueue-data:v3 \
   data/pipelines/generator/
 docker push node1:5000/smartqueue-data:v3
 
+# 5a. Retrain pipeline (CT pipeline)
+docker build -t node1:5000/smartqueue-retrain:v1 \
+  -f data/pipelines/pipeline2_retrain/Dockerfile \
+  data/pipelines/
+docker push node1:5000/smartqueue-retrain:v1
+
 # 5. Navidrome (optional custom build, or use upstream)
 docker build -t node1:5000/smartqueue-navidrome:v1 \
   -f devops/k8s/platform/navidrome/Dockerfile \
@@ -724,6 +730,7 @@ kubectl get svc smartqueue-serving -n smartqueue-prod -o jsonpath='{.spec.ports[
 | smartqueue-serving:v3 | `serving/lightgbm_app/Dockerfile` | `serving/lightgbm_app/` |
 | smartqueue-training:v1 | `training/docker/Dockerfile` | `training/` |
 | smartqueue-data:v3 | `data/pipelines/generator/Dockerfile` | `data/pipelines/generator/` |
+| smartqueue-retrain:v1 | `data/pipelines/pipeline2_retrain/Dockerfile` | `data/pipelines/` |
 | smartqueue-navidrome:v1 | custom or `deluan/navidrome` | - |
 
 ### Key internal DNS

@@ -142,10 +142,11 @@ All custom images are hosted on `node1:5000` (Docker registry, insecure HTTP). C
 
 | Image | Source Dockerfile | Used By |
 |-------|-------------------|---------|
-| `node1:5000/smartqueue-serving:v1` | `serving/docker/Dockerfile.lightgbm` | Serving deployments (all envs) |
+| `node1:5000/smartqueue-serving:v3` | `serving/lightgbm_app/Dockerfile` | Serving deployments (all envs) |
 | `node1:5000/smartqueue-mlflow:v1` | `devops/k8s/platform/mlflow/Dockerfile` | MLflow deployment |
 | `node1:5000/smartqueue-training:v1` | `training/docker/Dockerfile` | CT pipeline train step |
-| `node1:5000/smartqueue-data:v1` | `data/pipelines/generator/Dockerfile` | CT pipeline generate/retrain steps |
+| `node1:5000/smartqueue-data:v3` | `data/pipelines/generator/Dockerfile` | Generator (continuous feedback simulation) |
+| `node1:5000/smartqueue-retrain:v1` | `data/pipelines/pipeline2_retrain/Dockerfile` | CT pipeline retrain-data step |
 
 ### Building and pushing images
 
@@ -197,8 +198,8 @@ generate-feedback → retrain-data → train-model → evaluate-model
 
 | Step | Image | What it does |
 |------|-------|-------------|
-| generate-feedback | smartqueue-data:v1 | Simulates user traffic, writes feedback to S3 |
-| retrain-data | smartqueue-data:v1 | Merges feedback into training dataset on S3 |
+| generate-feedback | smartqueue-data:v3 | Simulates user traffic, writes feedback to S3 |
+| retrain-data | smartqueue-retrain:v1 | Merges feedback into training dataset on S3 |
 | train-model | smartqueue-training:v1 | Trains LightGBM model, logs to MLflow, outputs run-id |
 | evaluate-model | python:3.11-slim | Checks val_auc >= 0.65 quality threshold |
 | deploy-staging | argocd CLI | Deploys new model to staging via ArgoCD |
