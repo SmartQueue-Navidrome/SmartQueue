@@ -53,15 +53,54 @@ The **per-genre engagement rate** (`genre_engaged_total / genre_sessions_total`)
 
 **Owner: Serving**
 
-**Concern:** Users and operators have no visibility into what the model is recommending in real time.
+**Concern:** Users and operators have no visibility into what the model is recommending in real time, making it impossible to audit ranking decisions or detect unexpected behaviour.
 
-**Mechanism implemented:** _[Serving to confirm/expand — the `/active-sessions` endpoint exposes current session state and ranked candidates; Navidrome UI reads this every 3 seconds to show a live session table]_
+**Mechanisms implemented:**
 
-Additionally, the serving app exposes Prometheus metrics (`http_requests_total`, `http_request_duration_seconds`, `smartqueue_active_sessions`, `prediction_score`) giving operators continuous visibility into model activity.
+**User-facing transparency — live session dashboard in Navidrome UI:**
+The Navidrome UI polls `GET /active-sessions` every 3 seconds and displays a live table showing:
+- Which sessions are currently active
+- The user features used for ranking (`user_skip_rate`, `user_favorite_genre_encoded`, `user_watch_time_avg`)
+- The ranked song list with `video_id`, `genre_encoded`, and `engagement_probability` for each position
+
+This means any user or operator can see exactly which songs the model ranked and why (which features drove the ranking) at any point in time.
+
+**Operator-facing transparency — Prometheus metrics:**
+The serving app exposes a `/metrics` endpoint (scraped by Prometheus every 15s) with:
+
+| Metric | What it shows |
+|--------|--------------|
+| `http_requests_total` | Request volume by endpoint and status code |
+| `http_request_duration_seconds` | Latency distribution (p50/p95/p99) |
+| `prediction_score` | Distribution of model output scores (0–1 histogram) |
+| `prediction_invalid_total` | Count of out-of-range predictions |
+| `smartqueue_active_sessions` | Current number of active sessions |
+| `smartqueue_rerank_total` | Total reranking requests served |
+| `smartqueue_feedback_skips_total` | User skips after reranking |
+| `smartqueue_feedback_completions_total` | User completions after reranking |
+| `smartqueue_feedback_songs_kept` | Fraction of ML-ranked order kept by user |
+
+Grafana dashboards (`devops/k8s/monitoring/grafana-dashboards/serving.json`) visualise all of the above in real time.
+
+**Model identity transparency — `/health` endpoint:**
+Every request to `/health` returns the exact model version, run URI, and MLflow tracking URI so operators always know which model is serving traffic:
+```json
+{
+  "status": "ok",
+  "model_version": "lightgbm_v4",
+  "model_uri": "local:/models/smartqueue_lgbm.txt",
+  "model_name": "smartqueue-ranking",
+  "model_stage": "Production",
+  "tracking_uri": "http://129.114.24.226:30500"
+}
+```
 
 **Concrete files:**
-- `serving/lightgbm_app/app.py` — `/active-sessions` endpoint, `/metrics` endpoint
-- `devops/k8s/monitoring/servicemonitor-serving.yaml` — K8s ServiceMonitor
+- `serving/lightgbm_app/app.py` — `/active-sessions`, `/metrics`, `/health` endpoints
+- `navidrome/server/nativeapi/smartqueue.go` — proxies `/active-sessions` to Navidrome
+- `navidrome/ui/src/layout/AppBar.jsx` — session count display in UI
+- `devops/k8s/monitoring/servicemonitor-serving.yaml` — K8s ServiceMonitor scraping `/metrics`
+- `devops/k8s/monitoring/grafana-dashboards/serving.json` — Grafana dashboard
 
 ---
 
@@ -137,7 +176,7 @@ Every model promotion flows through the CT pipeline (Argo Workflows), which prov
 |-----------|-------|--------|-------------|
 | Fairness | Data | ✅ Implemented | `generator.py`, `servicemonitor-generator.yaml`, `retrain.py` |
 | Explainability | Training | ⬜ To fill in | — |
-| Transparency | Serving | ⬜ To confirm | `app.py` `/active-sessions` |
+| Transparency | Serving | ✅ Implemented | `app.py`, `smartqueue.go`, `AppBar.jsx`, `servicemonitor-serving.yaml` |
 | Privacy | Data | ✅ Documented | `feature_engineering.py`, `generator.py` |
 | Accountability | DevOps | ✅ Implemented | `ct-pipeline.yaml`, `promotion_triggers.py`, Argo Workflows UI, ArgoCD UI |
 | Robustness | Serving + DevOps | ✅ Implemented | `ct-pipeline.yaml`, `app.py`, `promotion_triggers.py` |
