@@ -20,10 +20,6 @@ services:
       - MODEL_URI=${MODEL_URI:-runs:/2ce32ba692c54095b4307ae8eb7ba508/model}
       - MODEL_NAME=${MODEL_NAME:-smartqueue-ranking}
       - MODEL_STAGE=${MODEL_STAGE:-Production}
-      # S3 credentials for MLflow artifact download (Chameleon object storage)
-      - MLFLOW_S3_ENDPOINT_URL=${MLFLOW_S3_ENDPOINT_URL:-https://chi.tacc.chameleoncloud.org:7480}
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
       # Fall back to mock if MLflow artifact download fails (prevents crash-loop during startup)
       - MOCK_ON_MLFLOW_FAIL=${MOCK_ON_MLFLOW_FAIL:-false}
       - UVICORN_PORT=8000

@@ -30,20 +30,6 @@ spec:
               value: Production
             - name: MODEL_VERSION
               value: v2ce32ba6
-            - name: MLFLOW_S3_ENDPOINT_URL
-              value: https://chi.tacc.chameleoncloud.org:7480
-            - name: AWS_ACCESS_KEY_ID
-              valueFrom:
-                secretKeyRef:
-                  name: s3-secret
-                  key: AWS_ACCESS_KEY_ID
-            - name: AWS_SECRET_ACCESS_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: s3-secret
-                  key: AWS_SECRET_ACCESS_KEY
-            # Prevents crash-loop if S3 artifact download blips at startup;
-            # remove once confirmed stable in production.
             - name: MOCK_ON_MLFLOW_FAIL
               value: "false"
           resources:
