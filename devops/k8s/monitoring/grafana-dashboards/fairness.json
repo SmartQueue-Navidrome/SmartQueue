@@ -1,0 +1,274 @@
+{
+  "uid": "smartqueue-fairness",
+  "title": "SmartQueue - Fairness Monitoring",
+  "tags": [
+    "smartqueue",
+    "fairness"
+  ],
+  "refresh": "30s",
+  "schemaVersion": 36,
+  "version": 1,
+  "timezone": "browser",
+  "time": {
+    "from": "now-3h",
+    "to": "now"
+  },
+  "templating": { "list": [] },
+  "panels": [
+    {
+      "id": 1,
+      "title": "--- Genre Fairness ---",
+      "type": "text",
+      "gridPos": { "h": 2, "w": 24, "x": 0, "y": 0 },
+      "options": { "mode": "markdown", "content": "## Genre Fairness Metrics\nMonitors whether the ranking model treats music genres equitably. A large spread in engagement rates may indicate bias." }
+    },
+    {
+      "id": 2,
+      "title": "Per-Genre Engagement Rate",
+      "description": "genre_engaged_total / genre_sessions_total per genre. All genres should be roughly similar; outliers suggest model bias.",
+      "type": "timeseries",
+      "gridPos": { "h": 10, "w": 16, "x": 0, "y": 2 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "drawStyle": "line",
+            "pointSize": 5,
+            "showPoints": "auto"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.15 },
+              { "color": "red", "value": 0.05 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "lastNotNull"] }
+      },
+      "targets": [
+        {
+          "expr": "genre_engaged_total / genre_sessions_total",
+          "legendFormat": "genre {{genre}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Engagement Rate Spread (max - min)",
+      "description": "Difference between highest and lowest genre engagement rates. High values indicate unfair treatment across genres.",
+      "type": "stat",
+      "gridPos": { "h": 5, "w": 8, "x": 16, "y": 2 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.15 },
+              { "color": "red", "value": 0.30 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      },
+      "targets": [
+        {
+          "expr": "max(genre_engaged_total / genre_sessions_total) - min(genre_engaged_total / genre_sessions_total)",
+          "legendFormat": "spread",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Overall Engagement Rate",
+      "description": "Aggregate engagement rate across all genres.",
+      "type": "gauge",
+      "gridPos": { "h": 5, "w": 8, "x": 16, "y": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 0.3 },
+              { "color": "green", "value": 0.5 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      },
+      "targets": [
+        {
+          "expr": "sum(genre_engaged_total) / sum(genre_sessions_total)",
+          "legendFormat": "overall",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "--- Session Volume by Genre ---",
+      "type": "text",
+      "gridPos": { "h": 2, "w": 24, "x": 0, "y": 12 },
+      "options": { "mode": "markdown", "content": "## Session Distribution\nShows how sessions and engagement are distributed across genres." }
+    },
+    {
+      "id": 5,
+      "title": "Sessions per Genre (total)",
+      "description": "Total sessions served per genre. Imbalanced distribution may amplify fairness issues.",
+      "type": "barchart",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 80,
+            "gradientMode": "scheme"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "showValue": "always",
+        "legend": { "displayMode": "hidden" }
+      },
+      "targets": [
+        {
+          "expr": "genre_sessions_total",
+          "legendFormat": "genre {{genre}}",
+          "refId": "A",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Engaged Sessions per Genre (total)",
+      "description": "Total engaged sessions per genre.",
+      "type": "barchart",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 80,
+            "gradientMode": "scheme"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "showValue": "always",
+        "legend": { "displayMode": "hidden" }
+      },
+      "targets": [
+        {
+          "expr": "genre_engaged_total",
+          "legendFormat": "genre {{genre}}",
+          "refId": "A",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "--- Rate of Change ---",
+      "type": "text",
+      "gridPos": { "h": 2, "w": 24, "x": 0, "y": 22 },
+      "options": { "mode": "markdown", "content": "## Rate Trends\nShows how engagement rates change over time to detect drift." }
+    },
+    {
+      "id": 7,
+      "title": "Per-Genre Session Rate (req/s)",
+      "description": "Rate of incoming sessions per genre over the last 5 minutes.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "min": 0,
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean"] }
+      },
+      "targets": [
+        {
+          "expr": "rate(genre_sessions_total[5m])",
+          "legendFormat": "genre {{genre}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Per-Genre Engagement Rate (rolling 5m)",
+      "description": "Rolling engagement rate per genre. More responsive than cumulative ratio for detecting recent shifts.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "lastNotNull"] }
+      },
+      "targets": [
+        {
+          "expr": "rate(genre_engaged_total[5m]) / rate(genre_sessions_total[5m])",
+          "legendFormat": "genre {{genre}}",
+          "refId": "A"
+        }
+      ]
+    }
+  ]
+}

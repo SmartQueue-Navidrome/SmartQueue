@@ -15,6 +15,6 @@ spec:
     matchLabels:
       app: smartqueue-serving
   endpoints:
-    - port: "8000"
+    - port: http
       path: /metrics
       interval: 15s
