@@ -478,7 +478,11 @@
         "label": "Datasource",
         "hide": 0,
         "refresh": 1,
-        "current": {}
+        "current": {
+          "text": "Prometheus",
+          "value": "prometheus"
+        },
+        "query": "prometheus"
       }
     ]
   }
