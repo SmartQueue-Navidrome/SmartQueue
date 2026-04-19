@@ -16,5 +16,5 @@ spec:
       app: smartqueue-serving
   endpoints:
     - port: "8000"
-      path: /health
+      path: /metrics
       interval: 15s
