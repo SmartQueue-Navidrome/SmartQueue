@@ -265,6 +265,9 @@ def main():
             model, y_pred = train_logistic_regression(X_train, y_train, X_val, y_val, cfg)
         elif model_type == "lightgbm":
             model, y_pred = train_lightgbm(X_train, y_train, X_val, y_val, cfg)
+            importances = model.feature_importance(importance_type="gain")
+            for feat, imp in zip(FEATURE_COLS, importances):
+                mlflow.log_metric(f"feat_importance_{feat}", float(imp))
         else:
             raise ValueError(f"Unknown model_type: {model_type}")
 

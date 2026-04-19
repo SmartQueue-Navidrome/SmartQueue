@@ -41,11 +41,14 @@ The **per-genre engagement rate** (`genre_engaged_total / genre_sessions_total`)
 
 **Owner: Training**
 
-**Concern:** _[Training to fill in]_
+**Concern:** The LightGBM ranking model makes decisions based on 7 input features, but without recording which features drive predictions, it is impossible to audit why a particular song is ranked higher than another or to detect if the model is over-relying on a single signal.
 
-**Mechanism implemented:** _[Training to fill in — suggested: log feature importance per run to MLflow; document which features drive ranking decisions]_
+**Mechanism implemented:**
 
-**Concrete files:** _[Training to fill in]_
+After each training run, feature importance scores (`importance_type="gain"`) are logged to MLflow as individual metrics (`feat_importance_<feature_name>`). Gain-based importance measures the total information gain contributed by each feature across all tree splits — a high score means the feature is heavily used in ranking decisions. These scores are visible in the MLflow UI for every registered run, allowing any team member to audit which features matter most and compare how feature reliance shifts across model versions.
+
+**Concrete files:**
+- `training/train_ranking_processed.py` — `feat_importance_*` metrics logged to MLflow after every LightGBM training run
 
 ---
 
@@ -175,7 +178,7 @@ Every model promotion flows through the CT pipeline (Argo Workflows), which prov
 | Principle | Owner | Status | Key File(s) |
 |-----------|-------|--------|-------------|
 | Fairness | Data | ✅ Implemented | `generator.py`, `servicemonitor-generator.yaml`, `retrain.py` |
-| Explainability | Training | ⬜ To fill in | — |
+| Explainability | Training | ✅ Implemented | `train_ranking_processed.py` |
 | Transparency | Serving | ✅ Implemented | `app.py`, `smartqueue.go`, `AppBar.jsx`, `servicemonitor-serving.yaml` |
 | Privacy | Data | ✅ Documented | `feature_engineering.py`, `generator.py` |
 | Accountability | DevOps | ✅ Implemented | `ct-pipeline.yaml`, `promotion_triggers.py`, Argo Workflows UI, ArgoCD UI |
