@@ -16,10 +16,12 @@ spec:
     spec:
       containers:
         - name: serving
-          image: node1:5000/smartqueue-serving:v1
+          image: node1:5000/smartqueue-serving:v2
           ports:
             - containerPort: 8000
           env:
+            - name: REDIS_HOST
+              value: redis.smartqueue-platform.svc.cluster.local
             - name: MLFLOW_TRACKING_URI
               value: http://mlflow.smartqueue-platform.svc.cluster.local:5000
             - name: MODEL_URI

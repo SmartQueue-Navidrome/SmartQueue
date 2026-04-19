@@ -1,9 +1,12 @@
 import os
+import json
 import threading
 import time
 from collections import deque
 from datetime import datetime, timezone
 from typing import List, Optional
+
+import redis as redis_lib
 
 import lightgbm as lgb
 import pandas as pd
@@ -154,28 +157,38 @@ else:
         )
 
 app = FastAPI(title="SmartQueue LightGBM Serving", version=MODEL_VERSION)
-session_lock = threading.Lock()
-active_sessions = {}
 
+REDIS_HOST = os.environ.get("REDIS_HOST", "redis.smartqueue-platform.svc.cluster.local")
+REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
 SESSION_TTL_SECONDS = 300
 
-
-def _reap_stale_sessions():
-    while True:
-        time.sleep(60)
-        cutoff = datetime.now(timezone.utc).timestamp() - SESSION_TTL_SECONDS
-        with session_lock:
-            stale = [
-                sid for sid, data in active_sessions.items()
-                if datetime.fromisoformat(data["last_seen_at"]).timestamp() < cutoff
-            ]
-            for sid in stale:
-                del active_sessions[sid]
-            if stale:
-                ACTIVE_SESSIONS_GAUGE.set(len(active_sessions))
+_redis = redis_lib.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
 
 
-threading.Thread(target=_reap_stale_sessions, daemon=True).start()
+def _redis_get(session_id: str):
+    raw = _redis.get(f"session:{session_id}")
+    return json.loads(raw) if raw else None
+
+
+def _redis_set(session_id: str, data: dict):
+    _redis.setex(f"session:{session_id}", SESSION_TTL_SECONDS, json.dumps(data))
+
+
+def _redis_delete(session_id: str):
+    _redis.delete(f"session:{session_id}")
+
+
+def _redis_all_sessions() -> dict:
+    keys = _redis.keys("session:*")
+    if not keys:
+        return {}
+    values = _redis.mget(keys)
+    result = {}
+    for key, val in zip(keys, values):
+        if val:
+            sid = key.removeprefix("session:")
+            result[sid] = json.loads(val)
+    return result
 
 REQUEST_COUNT = Counter(
     "http_requests_total",
@@ -424,20 +437,20 @@ def queue(req: QueueRequest):
             item.rank = idx
             detail["rank"] = idx
 
-        with session_lock:
-            existing_start = active_sessions.get(req.session_id, {}).get("started_at")
-            active_sessions[req.session_id] = {
-                "session_id": req.session_id,
-                "user_features": {
-                    "user_skip_rate": req.user_features.user_skip_rate,
-                    "user_favorite_genre_encoded": req.user_features.user_favorite_genre_encoded,
-                    "user_watch_time_avg": req.user_features.user_watch_time_avg,
-                },
-                "ranked_songs": ranked_details,
-                "started_at": existing_start or datetime.now(timezone.utc).isoformat(),
-                "last_seen_at": datetime.now(timezone.utc).isoformat(),
-            }
-            ACTIVE_SESSIONS_GAUGE.set(len(active_sessions))
+        existing = _redis_get(req.session_id)
+        existing_start = existing.get("started_at") if existing else None
+        _redis_set(req.session_id, {
+            "session_id": req.session_id,
+            "user_features": {
+                "user_skip_rate": req.user_features.user_skip_rate,
+                "user_favorite_genre_encoded": req.user_features.user_favorite_genre_encoded,
+                "user_watch_time_avg": req.user_features.user_watch_time_avg,
+            },
+            "ranked_songs": ranked_details,
+            "started_at": existing_start or datetime.now(timezone.utc).isoformat(),
+            "last_seen_at": datetime.now(timezone.utc).isoformat(),
+        })
+        ACTIVE_SESSIONS_GAUGE.set(len(_redis.keys("session:*")))
 
         return QueueResponse(session_id=req.session_id, ranked_songs=ranked)
     except HTTPException:
@@ -462,46 +475,45 @@ class SessionEndResponse(BaseModel):
 
 @app.post("/session/end", response_model=SessionEndResponse)
 def session_end(req: SessionEndRequest):
-    with session_lock:
-        active_sessions.pop(req.session_id, None)
-        ACTIVE_SESSIONS_GAUGE.set(len(active_sessions))
+    _redis_delete(req.session_id)
+    ACTIVE_SESSIONS_GAUGE.set(_redis.dbsize())
     return SessionEndResponse(ok=True)
 
 
 @app.get("/session/active", response_model=SessionActiveResponse)
 def session_active():
-    with session_lock:
-        ids = sorted(active_sessions.keys())
+    sessions = _redis_all_sessions()
+    ids = sorted(sessions.keys())
     return SessionActiveResponse(active_count=len(ids), sessions=ids)
 
 
 @app.get("/active-sessions", response_model=ActiveSessionsResponse)
 def active_sessions_detailed():
     """Return detailed info for all active sessions (for Navidrome dashboard)."""
-    with session_lock:
-        session_list = []
-        for sid in sorted(active_sessions.keys()):
-            data = active_sessions[sid]
-            session_list.append(
-                SessionDetail(
-                    session_id=sid,
-                    user_features=UserFeatures(
-                        user_skip_rate=data["user_features"]["user_skip_rate"],
-                        user_favorite_genre_encoded=data["user_features"]["user_favorite_genre_encoded"],
-                        user_watch_time_avg=data["user_features"]["user_watch_time_avg"],
-                    ),
-                    ranked_songs=[
-                        RankedSongDetail(
-                            rank=rs["rank"],
-                            video_id=rs["video_id"],
-                            genre_encoded=rs["genre_encoded"],
-                            engagement_probability=rs["engagement_probability"],
-                        )
-                        for rs in data["ranked_songs"]
-                    ],
-                    started_at=data["started_at"],
-                )
+    sessions = _redis_all_sessions()
+    session_list = []
+    for sid in sorted(sessions.keys()):
+        data = sessions[sid]
+        session_list.append(
+            SessionDetail(
+                session_id=sid,
+                user_features=UserFeatures(
+                    user_skip_rate=data["user_features"]["user_skip_rate"],
+                    user_favorite_genre_encoded=data["user_features"]["user_favorite_genre_encoded"],
+                    user_watch_time_avg=data["user_features"]["user_watch_time_avg"],
+                ),
+                ranked_songs=[
+                    RankedSongDetail(
+                        rank=rs["rank"],
+                        video_id=rs["video_id"],
+                        genre_encoded=rs["genre_encoded"],
+                        engagement_probability=rs["engagement_probability"],
+                    )
+                    for rs in data["ranked_songs"]
+                ],
+                started_at=data["started_at"],
             )
+        )
     return ActiveSessionsResponse(count=len(session_list), sessions=session_list)
 
 
@@ -548,16 +560,15 @@ def feedback(req: FeedbackRequest):
                 FEEDBACK_COMPLETIONS.inc()
 
         kept_ratio = None
-        with session_lock:
-            session_data = active_sessions.get(req.session_id)
-            if session_data and req.final_order and session_data.get("ranked_songs"):
-                ml_order = [s["video_id"] for s in session_data["ranked_songs"]]
-                matches = sum(
-                    1 for ml_id, user_id in zip(ml_order, req.final_order)
-                    if ml_id == user_id
-                )
-                kept_ratio = matches / max(len(ml_order), 1)
-                FEEDBACK_SONGS_KEPT.observe(kept_ratio)
+        session_data = _redis_get(req.session_id)
+        if session_data and req.final_order and session_data.get("ranked_songs"):
+            ml_order = [s["video_id"] for s in session_data["ranked_songs"]]
+            matches = sum(
+                1 for ml_id, user_id in zip(ml_order, req.final_order)
+                if ml_id == user_id
+            )
+            kept_ratio = matches / max(len(ml_order), 1)
+            FEEDBACK_SONGS_KEPT.observe(kept_ratio)
 
         return FeedbackResponse(
             session_id=req.session_id,
