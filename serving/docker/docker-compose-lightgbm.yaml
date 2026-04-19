@@ -9,14 +9,23 @@ services:
     volumes:
       - ${MODEL_DIR:-../model_artifacts}:/models:ro
     environment:
-      # Prefer a local file under MODEL_DIR (mount). Tries smartqueue_lgbm.txt then ranking_model_latest.pkl.
+      # Priority 1: local file under MODEL_DIR mount (fastest, no network)
       - LOCAL_MODEL_PATH=/models/smartqueue_lgbm.txt
       - SMARTQUEUE_MODEL_PATHS=/models/ranking_model_latest.pkl
       - MODEL_VERSION=${MODEL_VERSION:-lightgbm_v4}
-      # Leave MLflow unset for Docker Compose so serving uses /models only.
-      # To use MLflow from this VM, set MLFLOW_TRACKING_URI and S3 creds (see architecture.md).
-      - MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI:-}
+      # Priority 2: MLflow — set MLFLOW_TRACKING_URI to enable (required when no local model)
+      # External (from VM):  MLFLOW_TRACKING_URI=http://129.114.24.226:30500
+      # In-cluster:          MLFLOW_TRACKING_URI=http://mlflow.smartqueue-platform.svc.cluster.local:5000
+      - MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI:-http://129.114.24.226:30500}
       - MODEL_URI=${MODEL_URI:-runs:/2ce32ba692c54095b4307ae8eb7ba508/model}
+      - MODEL_NAME=${MODEL_NAME:-smartqueue-ranking}
+      - MODEL_STAGE=${MODEL_STAGE:-Production}
+      # S3 credentials for MLflow artifact download (Chameleon object storage)
+      - MLFLOW_S3_ENDPOINT_URL=${MLFLOW_S3_ENDPOINT_URL:-https://chi.tacc.chameleoncloud.org:7480}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      # Fall back to mock if MLflow artifact download fails (prevents crash-loop during startup)
+      - MOCK_ON_MLFLOW_FAIL=${MOCK_ON_MLFLOW_FAIL:-false}
       - UVICORN_PORT=8000
       - UVICORN_WORKERS=${UVICORN_WORKERS:-1}
     restart: unless-stopped

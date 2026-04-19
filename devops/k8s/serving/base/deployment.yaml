@@ -24,6 +24,10 @@ spec:
               value: http://mlflow.smartqueue-platform.svc.cluster.local:5000
             - name: MODEL_URI
               value: runs:/2ce32ba692c54095b4307ae8eb7ba508/model
+            - name: MODEL_NAME
+              value: smartqueue-ranking
+            - name: MODEL_STAGE
+              value: Production
             - name: MODEL_VERSION
               value: v2ce32ba6
             - name: MLFLOW_S3_ENDPOINT_URL
@@ -38,6 +42,10 @@ spec:
                 secretKeyRef:
                   name: s3-secret
                   key: AWS_SECRET_ACCESS_KEY
+            # Prevents crash-loop if S3 artifact download blips at startup;
+            # remove once confirmed stable in production.
+            - name: MOCK_ON_MLFLOW_FAIL
+              value: "false"
           resources:
             requests:
               cpu: 250m

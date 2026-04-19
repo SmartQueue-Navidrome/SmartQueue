@@ -11,8 +11,19 @@ services:
     volumes:
       - ${MODEL_DIR:-../model_artifacts}:/models:ro
     environment:
+      # Priority 1: local file (fastest)
       - LOCAL_MODEL_PATH=/models/smartqueue_lgbm.txt
+      - SMARTQUEUE_MODEL_PATHS=/models/ranking_model_latest.pkl
       - MODEL_VERSION=${MODEL_VERSION:-lightgbm_v4}
+      # Priority 2: MLflow (set MLFLOW_TRACKING_URI + S3 creds when no local model)
+      - MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI:-http://129.114.24.226:30500}
+      - MODEL_URI=${MODEL_URI:-runs:/2ce32ba692c54095b4307ae8eb7ba508/model}
+      - MODEL_NAME=${MODEL_NAME:-smartqueue-ranking}
+      - MODEL_STAGE=${MODEL_STAGE:-Production}
+      - MLFLOW_S3_ENDPOINT_URL=${MLFLOW_S3_ENDPOINT_URL:-https://chi.tacc.chameleoncloud.org:7480}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - MOCK_ON_MLFLOW_FAIL=${MOCK_ON_MLFLOW_FAIL:-false}
       - UVICORN_PORT=8000
       - UVICORN_WORKERS=${UVICORN_WORKERS:-1}
     restart: unless-stopped
