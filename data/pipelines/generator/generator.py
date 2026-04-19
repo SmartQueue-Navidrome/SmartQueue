@@ -123,6 +123,24 @@ def upload_feedback(local_path: Path, s3_key: str):
 
 # ── queue / session calls ─────────────────────────────────────────────────────
 
+_serving_model_version = "unknown"
+
+def fetch_model_version() -> str:
+    """Fetch model version from serving /health at startup."""
+    if not QUEUE_ENDPOINT:
+        return "unknown"
+    base = QUEUE_ENDPOINT.rsplit("/queue", 1)[0]
+    try:
+        resp = requests.get(f"{base}/health", timeout=5)
+        resp.raise_for_status()
+        version = resp.json().get("model_version", "unknown")
+        log.info(f"Serving model version: {version}")
+        return version
+    except Exception as e:
+        log.warning(f"Could not fetch model version from /health: {e}")
+        return "unknown"
+
+
 def call_session_end(session_id: str):
     """Notify serving that a session has finished."""
     if not QUEUE_ENDPOINT:
@@ -130,7 +148,9 @@ def call_session_end(session_id: str):
     base = QUEUE_ENDPOINT.rsplit("/queue", 1)[0]
     for attempt in range(1, 4):
         try:
-            requests.post(f"{base}/session/end", json={"session_id": session_id}, timeout=5)
+            resp = requests.post(f"{base}/session/end", json={"session_id": session_id}, timeout=5)
+            resp.raise_for_status()
+            log.info(f"session/end OK for {session_id[:8]}...")
             return
         except Exception as e:
             log.warning(f"session/end failed for {session_id[:8]}... attempt {attempt}/3 ({e})")
@@ -205,9 +225,12 @@ async def process_session(
             for _, row in sample.iterrows()
         ]
 
+        # Unique session key per loop to prevent last_seen_at refresh across loops
+        scoped_session_id = f"{session_id}_L{loop_num}"
+
         # Call /queue (run in thread to avoid blocking event loop)
         ranked = await loop.run_in_executor(
-            None, call_queue, session_id, user_features, candidates
+            None, call_queue, scoped_session_id, user_features, candidates
         )
 
         # Build ground truth lookup
@@ -220,12 +243,13 @@ async def process_session(
             engaged = gt.get(vid, 0)
             prob = song["engagement_probability"]
             rec = {
-                "session_id":                session_id,
+                "session_id":                scoped_session_id,
                 "video_id":                  vid,
                 "rank_position":             song["rank"],
                 "predicted_engagement_prob": prob,
                 "actual_is_engaged":         engaged,
                 "timestamp":                 datetime.now(timezone.utc).isoformat(),
+                "model_version":             _serving_model_version,
             }
             records.append(rec)
             log.info(
@@ -257,7 +281,7 @@ async def process_session(
                 genre_engaged_total.labels(genre=genre).inc()
 
         # Notify serving that this session is done
-        await loop.run_in_executor(None, call_session_end, session_id)
+        await loop.run_in_executor(None, call_session_end, scoped_session_id)
 
         log.info(f"[loop {loop_num}] session {session_id[:8]}... done → {len(records)} records saved to {filename}")
 
@@ -306,6 +330,9 @@ def main():
 
     start_http_server(METRICS_PORT)
     log.info(f"Prometheus metrics served on port {METRICS_PORT}")
+
+    global _serving_model_version
+    _serving_model_version = fetch_model_version()
 
     download_production_parquet()
 
