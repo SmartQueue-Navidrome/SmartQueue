@@ -1,6 +1,7 @@
 import os
 import threading
 import time
+from collections import deque
 from datetime import datetime, timezone
 from typing import List, Optional
 
@@ -222,6 +223,68 @@ FEEDBACK_SONGS_KEPT = Histogram(
     buckets=[0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
 )
 
+# ─── Model-output drift monitoring ──────────────────────────────────────────
+# Rolling window tracks recent prediction scores to detect distribution shifts.
+# Prometheus Gauges expose mean/min/max so Grafana alerts can fire on drift.
+
+DRIFT_WINDOW_SIZE = int(os.environ.get("DRIFT_WINDOW_SIZE", "500"))
+_score_window: deque = deque(maxlen=DRIFT_WINDOW_SIZE)
+_score_window_lock = threading.Lock()
+
+PREDICTION_SCORE_MEAN = Gauge(
+    "smartqueue_prediction_score_mean",
+    "Rolling mean of prediction scores (drift monitoring)",
+)
+PREDICTION_SCORE_STDDEV = Gauge(
+    "smartqueue_prediction_score_stddev",
+    "Rolling std-dev of prediction scores (drift monitoring)",
+)
+PREDICTION_SCORE_MIN = Gauge(
+    "smartqueue_prediction_score_min",
+    "Rolling min of prediction scores (drift monitoring)",
+)
+PREDICTION_SCORE_MAX = Gauge(
+    "smartqueue_prediction_score_max",
+    "Rolling max of prediction scores (drift monitoring)",
+)
+
+# Per-feature input drift gauges (rolling mean of each feature)
+FEATURE_DRIFT = Gauge(
+    "smartqueue_feature_mean",
+    "Rolling mean of input feature values (drift monitoring)",
+    ["feature"],
+)
+_feature_windows: dict = {col: deque(maxlen=DRIFT_WINDOW_SIZE) for col in FEATURE_COLUMNS}
+_feature_window_lock = threading.Lock()
+
+
+def _update_drift_metrics(scores: list, feature_frame: "pd.DataFrame"):
+    """Update rolling-window drift gauges for prediction scores and input features."""
+    import math
+
+    # Update score drift
+    with _score_window_lock:
+        _score_window.extend(scores)
+        if _score_window:
+            vals = list(_score_window)
+            mean = sum(vals) / len(vals)
+            PREDICTION_SCORE_MEAN.set(round(mean, 6))
+            PREDICTION_SCORE_MIN.set(round(min(vals), 6))
+            PREDICTION_SCORE_MAX.set(round(max(vals), 6))
+            variance = sum((v - mean) ** 2 for v in vals) / len(vals)
+            PREDICTION_SCORE_STDDEV.set(round(math.sqrt(variance), 6))
+
+    # Update feature drift
+    with _feature_window_lock:
+        for col in FEATURE_COLUMNS:
+            if col in feature_frame.columns:
+                _feature_windows[col].extend(feature_frame[col].tolist())
+                if _feature_windows[col]:
+                    vals = list(_feature_windows[col])
+                    FEATURE_DRIFT.labels(feature=col).set(
+                        round(sum(vals) / len(vals), 6)
+                    )
+
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
@@ -335,6 +398,9 @@ def queue(req: QueueRequest):
         RERANK_TOTAL.inc()
         feature_frame = build_feature_frame(req)
         scores = model.predict(feature_frame)
+
+        # Update drift monitoring gauges
+        _update_drift_metrics([float(s) for s in scores], feature_frame)
 
         ranked = []
         ranked_details = []

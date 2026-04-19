@@ -59,6 +59,12 @@ ROLLBACK_HEALTH_FAILURES_MAX = 3
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+# Score drift: warn if rolling mean deviates more than this from baseline
+DRIFT_SCORE_MEAN_MIN = float(os.environ.get("DRIFT_SCORE_MEAN_MIN", "0.15"))
+DRIFT_SCORE_MEAN_MAX = float(os.environ.get("DRIFT_SCORE_MEAN_MAX", "0.85"))
+DRIFT_SCORE_STDDEV_MAX = float(os.environ.get("DRIFT_SCORE_STDDEV_MAX", "0.35"))
+
+
 @dataclass
 class Metrics:
     error_rate: float
@@ -69,6 +75,10 @@ class Metrics:
     rerank_rate: float
     feedback_skip_rate: float
     feedback_completion_rate: float
+    score_mean: float
+    score_stddev: float
+    score_min: float
+    score_max: float
     timestamp: str
 
 
@@ -132,6 +142,12 @@ def get_current_metrics() -> Metrics:
     feedback_skip_rate = query_prometheus('sum(rate(smartqueue_feedback_skips_total[5m]))')
     feedback_completion_rate = query_prometheus('sum(rate(smartqueue_feedback_completions_total[5m]))')
 
+    # Drift monitoring gauges
+    score_mean = query_prometheus('smartqueue_prediction_score_mean')
+    score_stddev = query_prometheus('smartqueue_prediction_score_stddev')
+    score_min = query_prometheus('smartqueue_prediction_score_min')
+    score_max = query_prometheus('smartqueue_prediction_score_max')
+
     return Metrics(
         error_rate=max(0, error_rate) if error_rate >= 0 else 0,
         p95_latency_ms=max(0, p95_latency) if p95_latency >= 0 else 0,
@@ -141,6 +157,10 @@ def get_current_metrics() -> Metrics:
         rerank_rate=max(0, rerank_rate) if rerank_rate >= 0 else 0,
         feedback_skip_rate=max(0, feedback_skip_rate) if feedback_skip_rate >= 0 else 0,
         feedback_completion_rate=max(0, feedback_completion_rate) if feedback_completion_rate >= 0 else 0,
+        score_mean=score_mean if score_mean >= 0 else 0,
+        score_stddev=score_stddev if score_stddev >= 0 else 0,
+        score_min=score_min if score_min >= 0 else 0,
+        score_max=score_max if score_max >= 0 else 0,
         timestamp=datetime.now(timezone.utc).isoformat()
     )
 
@@ -156,6 +176,15 @@ def print_metrics(m: Metrics, prefix: str = ""):
     print(f"{prefix}Rerank rate:      {m.rerank_rate:.2f} req/s")
     print(f"{prefix}Feedback skips:   {m.feedback_skip_rate:.2f}/s")
     print(f"{prefix}Feedback compl:   {m.feedback_completion_rate:.2f}/s")
+    # Drift monitoring
+    print(f"{prefix}Score mean:       {m.score_mean:.4f}  [expected: {DRIFT_SCORE_MEAN_MIN}-{DRIFT_SCORE_MEAN_MAX}]")
+    print(f"{prefix}Score stddev:     {m.score_stddev:.4f}  [max: {DRIFT_SCORE_STDDEV_MAX}]")
+    print(f"{prefix}Score range:      [{m.score_min:.4f}, {m.score_max:.4f}]")
+    # Drift warnings
+    if m.score_mean > 0 and (m.score_mean < DRIFT_SCORE_MEAN_MIN or m.score_mean > DRIFT_SCORE_MEAN_MAX):
+        print(f"{prefix}  ⚠ DRIFT WARNING: score mean {m.score_mean:.4f} outside expected range")
+    if m.score_stddev > DRIFT_SCORE_STDDEV_MAX:
+        print(f"{prefix}  ⚠ DRIFT WARNING: score stddev {m.score_stddev:.4f} exceeds threshold")
 
 
 def run_canary(duration_seconds: int) -> bool:
