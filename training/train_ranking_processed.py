@@ -28,8 +28,9 @@ from sklearn.metrics import roc_auc_score, log_loss
 
 # ── Quality Gate Config ────────────────────────────────────────────────────────
 MODEL_REGISTRY_NAME = "smartqueue-ranking"
-AUC_FLOOR = 0.70          # absolute minimum — must beat this even if no prod model exists
-LOGLOSS_CEILING = 0.70    # absolute maximum logloss allowed
+AUC_FLOOR = 0.75          # absolute minimum — 50% of the way from random (0.5) to perfect (1.0)
+LOGLOSS_CEILING = 0.65    # absolute maximum logloss allowed
+AUC_MIN_DELTA = 0.002     # must improve production AUC by at least this margin to deploy
 # ──────────────────────────────────────────────────────────────────────────────
 
 # ── Local Model Save Path (for serving fallback / rollback) ───────────────────
@@ -184,9 +185,9 @@ def evaluate_quality_gate(val_auc: float, val_logloss: float, client: MlflowClie
 
     prod = get_production_metrics(client)
     if prod is not None:
-        if val_auc <= prod["val_auc"]:
-            return False, f"val_auc {val_auc:.4f} does not beat production {prod['val_auc']:.4f}"
-        print(f"[gate] Beats production AUC: {val_auc:.4f} > {prod['val_auc']:.4f}")
+        if val_auc < prod["val_auc"] + AUC_MIN_DELTA:
+            return False, f"val_auc {val_auc:.4f} does not improve production {prod['val_auc']:.4f} by {AUC_MIN_DELTA}"
+        print(f"[gate] Beats production AUC by required margin: {val_auc:.4f} > {prod['val_auc']:.4f} + {AUC_MIN_DELTA}")
     else:
         print("[gate] No production model found — applying absolute thresholds only")
 
@@ -300,7 +301,7 @@ def main():
         run_id = mlflow.active_run().info.run_id
 
         print(f"\n[gate] Evaluating quality gate...")
-        print(f"[gate]   val_auc     = {val_auc:.4f}  (floor: {AUC_FLOOR})")
+        print(f"[gate]   val_auc     = {val_auc:.4f}  (floor: {AUC_FLOOR}, min_delta_vs_prod: {AUC_MIN_DELTA})")
         print(f"[gate]   val_logloss = {val_logloss:.4f}  (ceiling: {LOGLOSS_CEILING})")
 
         passed, reason = evaluate_quality_gate(val_auc, val_logloss, client)
