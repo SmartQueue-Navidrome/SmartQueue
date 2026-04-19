@@ -9,6 +9,8 @@ resources:
   - postgres/pvc.yaml
   - mlflow/deployment.yaml
   - mlflow/service.yaml
+  - redis/deployment.yaml
+  - redis/service.yaml
   - navidrome/deployment.yaml
   - navidrome/service.yaml
   - navidrome/pvc.yaml

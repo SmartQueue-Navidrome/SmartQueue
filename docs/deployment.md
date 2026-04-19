@@ -262,10 +262,10 @@ docker build -t node1:5000/smartqueue-mlflow:v1 \
 docker push node1:5000/smartqueue-mlflow:v1
 
 # 2. Serving (LightGBM FastAPI)
-docker build -t node1:5000/smartqueue-serving:v1 \
-  -f serving/docker/Dockerfile.lightgbm \
-  serving/
-docker push node1:5000/smartqueue-serving:v1
+docker build -t node1:5000/smartqueue-serving:v3 \
+  -f serving/lightgbm_app/Dockerfile \
+  serving/lightgbm_app/
+docker push node1:5000/smartqueue-serving:v3
 
 # 3. Training
 docker build -t node1:5000/smartqueue-training:v1 \
@@ -273,12 +273,11 @@ docker build -t node1:5000/smartqueue-training:v1 \
   training/
 docker push node1:5000/smartqueue-training:v1
 
-# 4. Data (generator + retrain pipeline)
-cd data/pipelines
-docker build -t node1:5000/smartqueue-data:v1 \
-  -f pipeline2_retrain/Dockerfile .
-docker push node1:5000/smartqueue-data:v1
-cd ~/SmartQueue
+# 4. Data generator
+docker build -t node1:5000/smartqueue-data:v3 \
+  -f data/pipelines/generator/Dockerfile \
+  data/pipelines/generator/
+docker push node1:5000/smartqueue-data:v3
 
 # 5. Navidrome (optional custom build, or use upstream)
 docker build -t node1:5000/smartqueue-navidrome:v1 \
@@ -315,6 +314,10 @@ kubectl rollout status statefulset postgres -n smartqueue-platform --timeout=120
 # MLflow
 kubectl apply -f ~/k8s/platform/mlflow/
 
+# Redis (shared session store for serving)
+kubectl apply -f ~/k8s/platform/redis/
+kubectl rollout status deployment/redis -n smartqueue-platform --timeout=60s
+
 # Navidrome
 kubectl apply -f ~/k8s/platform/navidrome/
 
@@ -331,6 +334,10 @@ kubectl exec -it postgres-0 -n smartqueue-platform -- psql -U mlflow -d mlflow -
 # MLflow UI
 curl -s http://localhost:30500/health    # or from local: http://<FLOATING_IP>:30500
 
+# Redis
+kubectl exec -n smartqueue-platform deployment/redis -- redis-cli ping
+# Expected: PONG
+
 # Navidrome
 curl -s http://localhost:30453/ping      # or from local: http://<FLOATING_IP>:30453
 ```
@@ -341,6 +348,7 @@ curl -s http://localhost:30453/ping      # or from local: http://<FLOATING_IP>:3
 |------------|----------------------|----------------|----------|
 | PostgreSQL | smartqueue-platform  | 5432           | -        |
 | MLflow     | smartqueue-platform  | 5000           | 30500    |
+| Redis      | smartqueue-platform  | 6379           | -        |
 | Navidrome  | smartqueue-platform  | 4533           | 30453    |
 
 ---
@@ -519,7 +527,8 @@ ObjStore_proj13/
 │   ├── test.parquet
 │   └── production.parquet
 ├── feedback/                          # Generator output
-│   └── {YYYYMMDD}_{session_id}_{loop}_{run}.jsonl
+│   └── {YYYYMMDD}/                   # One folder per date
+│       └── {YYYYMMDD}_{session_id}_{loop}_{run}.jsonl
 ├── retrain/                           # Daily retrain datasets
 │   └── v{YYYYMMDD}/train.parquet
 └── mlflow-artifacts/                  # MLflow model artifacts
@@ -712,9 +721,9 @@ kubectl get svc smartqueue-serving -n smartqueue-prod -o jsonpath='{.spec.ports[
 | Image | Dockerfile | Build context |
 |-------|-----------|---------------|
 | smartqueue-mlflow:v1 | `devops/k8s/platform/mlflow/Dockerfile` | `devops/k8s/platform/mlflow/` |
-| smartqueue-serving:v1 | `serving/docker/Dockerfile.lightgbm` | `serving/` |
+| smartqueue-serving:v3 | `serving/lightgbm_app/Dockerfile` | `serving/lightgbm_app/` |
 | smartqueue-training:v1 | `training/docker/Dockerfile` | `training/` |
-| smartqueue-data:v1 | `data/pipelines/pipeline2_retrain/Dockerfile` | `data/pipelines/` |
+| smartqueue-data:v3 | `data/pipelines/generator/Dockerfile` | `data/pipelines/generator/` |
 | smartqueue-navidrome:v1 | custom or `deluan/navidrome` | - |
 
 ### Key internal DNS
@@ -726,5 +735,6 @@ kubectl get svc smartqueue-serving -n smartqueue-prod -o jsonpath='{.spec.ports[
 | Serving (prod) | `smartqueue-serving.smartqueue-prod.svc.cluster.local:8000` |
 | Serving (staging) | `smartqueue-serving.smartqueue-staging.svc.cluster.local:8000` |
 | Serving (canary) | `smartqueue-serving.smartqueue-canary.svc.cluster.local:8000` |
+| Redis | `redis.smartqueue-platform.svc.cluster.local:6379` |
 | ArgoCD | `argocd-server.argocd.svc.cluster.local` |
 | S3 (Chameleon) | `https://chi.tacc.chameleoncloud.org:7480` |

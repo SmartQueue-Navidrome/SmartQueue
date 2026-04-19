@@ -19,7 +19,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: data-pipeline
-          image: node1:5000/smartqueue-data:v1
+          image: node1:5000/smartqueue-data:v3
           env:
             # Chameleon native object storage at CHI@TACC
             - name: S3_ENDPOINT_URL
