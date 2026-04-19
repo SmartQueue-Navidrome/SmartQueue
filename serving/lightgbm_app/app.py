@@ -334,6 +334,7 @@ class RankedSong(BaseModel):
 class QueueResponse(BaseModel):
     session_id: str
     ranked_songs: List[RankedSong]
+    model_version: str
 
 
 class SessionEndRequest(BaseModel):
@@ -452,7 +453,7 @@ def queue(req: QueueRequest):
         })
         ACTIVE_SESSIONS_GAUGE.set(len(_redis.keys("session:*")))
 
-        return QueueResponse(session_id=req.session_id, ranked_songs=ranked)
+        return QueueResponse(session_id=req.session_id, ranked_songs=ranked, model_version=MODEL_VERSION)
     except HTTPException:
         raise
     except Exception:

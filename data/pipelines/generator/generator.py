@@ -123,23 +123,6 @@ def upload_feedback(local_path: Path, s3_key: str):
 
 # ── queue / session calls ─────────────────────────────────────────────────────
 
-_serving_model_version = "unknown"
-
-def fetch_model_version() -> str:
-    """Fetch model version from serving /health at startup."""
-    if not QUEUE_ENDPOINT:
-        return "unknown"
-    base = QUEUE_ENDPOINT.rsplit("/queue", 1)[0]
-    try:
-        resp = requests.get(f"{base}/health", timeout=5)
-        resp.raise_for_status()
-        version = resp.json().get("model_version", "unknown")
-        log.info(f"Serving model version: {version}")
-        return version
-    except Exception as e:
-        log.warning(f"Could not fetch model version from /health: {e}")
-        return "unknown"
-
 
 def call_session_end(session_id: str):
     """Notify serving that a session has finished."""
@@ -156,8 +139,8 @@ def call_session_end(session_id: str):
             log.warning(f"session/end failed for {session_id[:8]}... attempt {attempt}/3 ({e})")
 
 
-def call_queue(session_id: str, user_features: dict, candidates: list[dict]) -> list[dict]:
-    """Call /queue endpoint or fall back to mock ranking."""
+def call_queue(session_id: str, user_features: dict, candidates: list[dict]) -> tuple[list[dict], str]:
+    """Call /queue endpoint or fall back to mock ranking. Returns (ranked_songs, model_version)."""
     payload = {
         "session_id": session_id,
         "user_features": user_features,
@@ -165,7 +148,6 @@ def call_queue(session_id: str, user_features: dict, candidates: list[dict]) -> 
     }
 
     if not QUEUE_ENDPOINT:
-        # mock: random engagement probabilities
         ranked = [
             {
                 "video_id": c["video_id"],
@@ -174,12 +156,13 @@ def call_queue(session_id: str, user_features: dict, candidates: list[dict]) -> 
             }
             for i, c in enumerate(random.sample(candidates, len(candidates)))
         ]
-        return ranked
+        return ranked, "mock"
 
     try:
         resp = requests.post(QUEUE_ENDPOINT, json=payload, timeout=10)
         resp.raise_for_status()
-        return resp.json()["ranked_songs"]
+        data = resp.json()
+        return data["ranked_songs"], data.get("model_version", "unknown")
     except Exception as e:
         log.warning(f"Queue endpoint failed ({e}), falling back to mock")
         return [
@@ -189,7 +172,7 @@ def call_queue(session_id: str, user_features: dict, candidates: list[dict]) -> 
                 "rank": i + 1,
             }
             for i, c in enumerate(random.sample(candidates, len(candidates)))
-        ]
+        ], "unknown"
 
 
 # ── session processing ────────────────────────────────────────────────────────
@@ -229,7 +212,7 @@ async def process_session(
         scoped_session_id = f"{session_id}_L{loop_num}"
 
         # Call /queue (run in thread to avoid blocking event loop)
-        ranked = await loop.run_in_executor(
+        ranked, model_version = await loop.run_in_executor(
             None, call_queue, scoped_session_id, user_features, candidates
         )
 
@@ -249,7 +232,7 @@ async def process_session(
                 "predicted_engagement_prob": prob,
                 "actual_is_engaged":         engaged,
                 "timestamp":                 datetime.now(timezone.utc).isoformat(),
-                "model_version":             _serving_model_version,
+                "model_version":             model_version,
             }
             records.append(rec)
             log.info(
@@ -330,9 +313,6 @@ def main():
 
     start_http_server(METRICS_PORT)
     log.info(f"Prometheus metrics served on port {METRICS_PORT}")
-
-    global _serving_model_version
-    _serving_model_version = fetch_model_version()
 
     download_production_parquet()
 

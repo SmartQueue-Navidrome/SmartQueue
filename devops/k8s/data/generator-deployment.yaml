@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: generator
-          image: node1:5000/smartqueue-data:v2
+          image: node1:5000/smartqueue-data:v3
           command: [python, generator.py]
           ports:
             - containerPort: 8001
