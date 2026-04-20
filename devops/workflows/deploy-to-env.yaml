@@ -55,7 +55,7 @@ spec:
               --password $(ARGOCD_PASSWORD) \
               --insecure --grpc-web
             argocd app set {{inputs.parameters.app-name}} \
-              --kustomize-image node1:5000/smartqueue-serving:v1
+              --kustomize-image node1:5000/smartqueue-serving:v2
             argocd app set {{inputs.parameters.app-name}} \
               --parameter MODEL_URI={{inputs.parameters.model-uri}} \
               --parameter MODEL_VERSION={{inputs.parameters.model-version}} || true

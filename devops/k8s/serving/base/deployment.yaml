@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: serving
-          image: node1:5000/smartqueue-serving:v3
+          image: node1:5000/smartqueue-serving:v2
           ports:
             - containerPort: 8000
           env:

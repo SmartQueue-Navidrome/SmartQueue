@@ -25,7 +25,7 @@
       "title": "Request Rate (/queue)",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 8, "x": 0, "y": 2 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": {
         "defaults": { "unit": "reqps", "min": 0 },
         "overrides": []
@@ -47,7 +47,7 @@
       "title": "Error Rate (/queue)",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 8, "x": 8, "y": 2 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": {
         "defaults": {
           "unit": "percentunit",
@@ -81,7 +81,7 @@
       "title": "Latency (/queue) - Avg & p95",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 8, "x": 16, "y": 2 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": {
         "defaults": {
           "unit": "ms",
@@ -119,7 +119,7 @@
       "title": "Avg Prediction Score",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 8, "x": 0, "y": 10 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
@@ -146,7 +146,7 @@
       "title": "Prediction Score Distribution",
       "type": "heatmap",
       "gridPos": { "h": 8, "w": 8, "x": 8, "y": 10 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "options": {
         "calculate": false,
         "yAxis": { "unit": "short" },
@@ -167,7 +167,7 @@
       "title": "Invalid Predictions & Bad Requests",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 8, "x": 16, "y": 10 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": {
         "defaults": { "unit": "short", "min": 0 },
         "overrides": []
@@ -194,7 +194,7 @@
       "title": "Active Sessions",
       "type": "stat",
       "gridPos": { "h": 4, "w": 8, "x": 0, "y": 18 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
@@ -228,7 +228,7 @@
       "title": "Feedback: Reranks & Skips",
       "type": "timeseries",
       "gridPos": { "h": 4, "w": 8, "x": 8, "y": 18 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": {
         "defaults": { "unit": "short", "min": 0 },
         "overrides": []
@@ -260,7 +260,7 @@
       "title": "Feedback: Avg Songs Kept in Top Positions",
       "type": "stat",
       "gridPos": { "h": 4, "w": 8, "x": 16, "y": 18 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": {
         "defaults": {
           "unit": "percentunit",
@@ -305,7 +305,7 @@
       "title": "Container CPU Usage - Serving Pods",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
@@ -338,7 +338,7 @@
       "title": "Container Memory Usage - Serving Pods",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": {
         "defaults": {
           "unit": "bytes",
@@ -370,7 +370,7 @@
       "title": "HPA Replicas",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": {
         "defaults": { "unit": "short", "min": 0 },
         "overrides": []
@@ -402,7 +402,7 @@
       "title": "HPA CPU Target vs Actual",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
@@ -440,7 +440,7 @@
       "title": "Pods by Namespace",
       "type": "stat",
       "gridPos": { "h": 6, "w": 12, "x": 0, "y": 40 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
@@ -469,21 +469,5 @@
       ]
     }
   ],
-  "templating": {
-    "list": [
-      {
-        "name": "datasource",
-        "type": "datasource",
-        "pluginId": "prometheus",
-        "label": "Datasource",
-        "hide": 0,
-        "refresh": 1,
-        "current": {
-          "text": "Prometheus",
-          "value": "prometheus"
-        },
-        "query": "prometheus"
-      }
-    ]
-  }
+  "templating": { "list": [] }
 }
