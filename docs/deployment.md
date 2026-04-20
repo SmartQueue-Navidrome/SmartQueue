@@ -18,7 +18,11 @@ Deploy the full SmartQueue ML-powered music recommendation system on Chameleon C
 cp .env.example .env                                         # fill in credentials
 cp devops/tf/kvm/terraform.tfvars.example devops/tf/kvm/terraform.tfvars  # fill in lease details
 
-# 2. Deploy everything
+# 2. (First time only) Process and upload initial training data
+#    Requires: S3_ACCESS_KEY and S3_SECRET_KEY set in .env
+bash data/pipelines/pipeline1_initial/run_pipeline.sh
+
+# 3. Deploy everything
 ./deploy.sh
 ```
 
