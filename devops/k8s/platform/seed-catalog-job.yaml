@@ -1,0 +1,52 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: seed-song-catalog
+  namespace: smartqueue-prod
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: seed
+          image: node1:5000/smartqueue-serving:v2
+          command: ["python", "/app/seed_song_catalog.py", "--metadata", "/data/song_catalog_metadata.json"]
+          env:
+            - name: NAVIDROME_URL
+              value: "http://navidrome.smartqueue-platform.svc.cluster.local:4533"
+            - name: NAVIDROME_USER
+              valueFrom:
+                secretKeyRef:
+                  name: navidrome-secret
+                  key: NAVIDROME_ADMIN_USER
+            - name: NAVIDROME_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: navidrome-secret
+                  key: NAVIDROME_ADMIN_PASSWORD
+            - name: POSTGRES_HOST
+              value: postgres.smartqueue-platform.svc.cluster.local
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_DB
+          volumeMounts:
+            - name: metadata
+              mountPath: /data
+      volumes:
+        - name: metadata
+          configMap:
+            name: song-catalog-metadata

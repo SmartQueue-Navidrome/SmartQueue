@@ -9,6 +9,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY lightgbm_app/app.py .
 COPY lightgbm_app/start.sh .
+COPY lightgbm_app/seed_song_catalog.py .
 RUN chmod +x /app/start.sh
 
 # Default: load from mounted /models (see docker-compose). MLflow is optional at runtime.
