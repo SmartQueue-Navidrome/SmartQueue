@@ -3,8 +3,12 @@ import json
 import threading
 import time
 from collections import deque
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import List, Optional
+
+import psycopg2
+import psycopg2.extras
 
 import redis as redis_lib
 
@@ -156,7 +160,75 @@ else:
             "Or MOCK_MODE=true."
         )
 
-app = FastAPI(title="SmartQueue LightGBM Serving", version=MODEL_VERSION)
+PG_HOST = os.environ.get("POSTGRES_HOST", "postgres.smartqueue-platform.svc.cluster.local")
+PG_PORT = int(os.environ.get("POSTGRES_PORT", "5432"))
+PG_USER = os.environ.get("POSTGRES_USER", "mlflow")
+PG_PASSWORD = os.environ.get("POSTGRES_PASSWORD", "")
+PG_DB = os.environ.get("POSTGRES_DB", "mlflow")
+
+
+def _pg_conn():
+    return psycopg2.connect(
+        host=PG_HOST, port=PG_PORT, user=PG_USER,
+        password=PG_PASSWORD, dbname=PG_DB,
+        connect_timeout=5,
+    )
+
+
+def _create_tables():
+    with _pg_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS user_profiles (
+                    user_id               TEXT PRIMARY KEY,
+                    skip_rate             FLOAT   NOT NULL DEFAULT 0.5,
+                    fav_genre_encoded     INT     NOT NULL DEFAULT -1,
+                    watch_time_avg        FLOAT   NOT NULL DEFAULT 0.0,
+                    total_songs_heard     INT     NOT NULL DEFAULT 0,
+                    total_skips           INT     NOT NULL DEFAULT 0,
+                    total_watch_time_secs FLOAT   NOT NULL DEFAULT 0.0,
+                    total_sessions        INT     NOT NULL DEFAULT 0,
+                    created_at            TIMESTAMP NOT NULL DEFAULT NOW(),
+                    updated_at            TIMESTAMP NOT NULL DEFAULT NOW()
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS user_genre_stats (
+                    user_id        TEXT NOT NULL,
+                    genre_encoded  INT  NOT NULL,
+                    engaged_count  INT  NOT NULL DEFAULT 0,
+                    total_count    INT  NOT NULL DEFAULT 0,
+                    PRIMARY KEY (user_id, genre_encoded)
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS song_catalog (
+                    navidrome_id      TEXT PRIMARY KEY,
+                    genre_encoded     INT  NOT NULL,
+                    subgenre_encoded  INT  NOT NULL DEFAULT 0,
+                    release_year      INT  NOT NULL,
+                    context_segment   INT  NOT NULL DEFAULT 0
+                )
+            """)
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_user_genre_stats_user_id
+                ON user_genre_stats (user_id)
+            """)
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_song_catalog_genre
+                ON song_catalog (genre_encoded)
+            """)
+        conn.commit()
+    print("[db] Tables verified/created.")
+
+
+@asynccontextmanager
+async def lifespan(app_instance: "FastAPI"):
+    _create_tables()
+    yield
+
+
+app = FastAPI(title="SmartQueue LightGBM Serving", version=MODEL_VERSION, lifespan=lifespan)
 
 REDIS_HOST = os.environ.get("REDIS_HOST", "redis.smartqueue-platform.svc.cluster.local")
 REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))

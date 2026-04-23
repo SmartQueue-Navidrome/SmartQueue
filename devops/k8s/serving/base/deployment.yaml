@@ -34,6 +34,23 @@ spec:
               value: v152218a6
             - name: MOCK_ON_MLFLOW_FAIL
               value: "false"
+            - name: POSTGRES_HOST
+              value: postgres.smartqueue-platform.svc.cluster.local
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_DB
             - name: MLFLOW_S3_ENDPOINT_URL
               value: https://chi.tacc.chameleoncloud.org:7480
             - name: AWS_ACCESS_KEY_ID
