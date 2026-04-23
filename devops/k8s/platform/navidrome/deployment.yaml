@@ -15,6 +15,13 @@ spec:
       labels:
         app: navidrome
     spec:
+      initContainers:
+        - name: fix-music-path
+          image: alpine:3.20
+          command: ["/bin/sh", "-c", "ln -sfn /data/music /music"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
       containers:
         - name: navidrome
           image: node1:5000/smartqueue-navidrome:v1
