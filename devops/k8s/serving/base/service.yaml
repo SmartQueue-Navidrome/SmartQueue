@@ -10,6 +10,7 @@ spec:
   selector:
     app: smartqueue-serving
   ports:
-    - protocol: TCP
+    - name: http
+      protocol: TCP
       port: 8000
       targetPort: 8000
