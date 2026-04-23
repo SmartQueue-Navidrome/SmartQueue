@@ -25,13 +25,13 @@ spec:
             - name: MLFLOW_TRACKING_URI
               value: http://mlflow.smartqueue-platform.svc.cluster.local:5000
             - name: MODEL_URI
-              value: runs:/2ce32ba692c54095b4307ae8eb7ba508/model
+              value: runs:/152218a6b22148ceb11acc4f02e97e07/model
             - name: MODEL_NAME
               value: smartqueue-ranking
             - name: MODEL_STAGE
               value: Production
             - name: MODEL_VERSION
-              value: v2ce32ba6
+              value: v152218a6
             - name: MOCK_ON_MLFLOW_FAIL
               value: "false"
             - name: MLFLOW_S3_ENDPOINT_URL
