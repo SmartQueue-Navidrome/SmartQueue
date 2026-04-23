@@ -165,6 +165,7 @@ PG_PORT = int(os.environ.get("POSTGRES_PORT", "5432"))
 PG_USER = os.environ.get("POSTGRES_USER", "mlflow")
 PG_PASSWORD = os.environ.get("POSTGRES_PASSWORD", "")
 PG_DB = os.environ.get("POSTGRES_DB", "mlflow")
+S3_BUCKET = os.environ.get("S3_BUCKET", "ObjStore_proj13")
 
 
 def _pg_conn():
@@ -222,6 +223,133 @@ def _create_tables():
     print("[db] Tables verified/created.")
 
 
+# ─── Postgres helpers ────────────────────────────────────────────────────────
+
+def _pg_get_user_profile(user_id: str) -> Optional[dict]:
+    conn = _pg_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT * FROM user_profiles WHERE user_id = %s", (user_id,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def _pg_get_songs_random(limit: int) -> List[dict]:
+    conn = _pg_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT * FROM song_catalog ORDER BY RANDOM() LIMIT %s", (limit,))
+            return [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def _pg_get_songs_by_genre(fav_genre: int, n_fav: int, n_other: int) -> List[dict]:
+    conn = _pg_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "SELECT * FROM song_catalog WHERE genre_encoded = %s ORDER BY RANDOM() LIMIT %s",
+                (fav_genre, n_fav),
+            )
+            fav = [dict(r) for r in cur.fetchall()]
+            cur.execute(
+                "SELECT * FROM song_catalog WHERE genre_encoded != %s ORDER BY RANDOM() LIMIT %s",
+                (fav_genre, n_other),
+            )
+            other = [dict(r) for r in cur.fetchall()]
+        return fav + other
+    finally:
+        conn.close()
+
+
+def _pg_update_user_feedback(user_id: str, navidrome_id: str, action: str, time_secs: float):
+    engaged = 1 if action == "complete" else 0
+    watch_add = time_secs if action == "complete" else 0.0
+    conn = _pg_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                UPDATE user_profiles SET
+                    total_songs_heard     = total_songs_heard + 1,
+                    total_skips           = total_skips + %s,
+                    total_watch_time_secs = total_watch_time_secs + %s,
+                    skip_rate             = (total_skips + %s)::float / NULLIF(total_songs_heard + 1, 0),
+                    watch_time_avg        = (total_watch_time_secs + %s)::float / NULLIF(total_songs_heard + 1, 0),
+                    updated_at            = NOW()
+                WHERE user_id = %s
+            """, (1 - engaged, watch_add, 1 - engaged, watch_add, user_id))
+            cur.execute(
+                "SELECT genre_encoded FROM song_catalog WHERE navidrome_id = %s", (navidrome_id,)
+            )
+            row = cur.fetchone()
+            if row:
+                genre = row["genre_encoded"]
+                cur.execute("""
+                    INSERT INTO user_genre_stats (user_id, genre_encoded, engaged_count, total_count)
+                    VALUES (%s, %s, %s, 1)
+                    ON CONFLICT (user_id, genre_encoded)
+                    DO UPDATE SET
+                        engaged_count = user_genre_stats.engaged_count + EXCLUDED.engaged_count,
+                        total_count   = user_genre_stats.total_count + 1
+                """, (user_id, genre, engaged))
+            cur.execute("""
+                SELECT genre_encoded FROM user_genre_stats
+                WHERE user_id = %s ORDER BY engaged_count DESC LIMIT 1
+            """, (user_id,))
+            fav_row = cur.fetchone()
+            if fav_row:
+                cur.execute(
+                    "UPDATE user_profiles SET fav_genre_encoded = %s WHERE user_id = %s",
+                    (fav_row["genre_encoded"], user_id),
+                )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _pg_increment_total_sessions(user_id: str):
+    conn = _pg_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE user_profiles
+                SET total_sessions = total_sessions + 1, updated_at = NOW()
+                WHERE user_id = %s
+            """, (user_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+# ─── S3 feedback write ────────────────────────────────────────────────────────
+
+def _write_user_feedback_to_s3(session_id: str, feedback_events: list):
+    if not feedback_events:
+        return
+    endpoint = os.environ.get("MLFLOW_S3_ENDPOINT_URL", "")
+    if not endpoint:
+        print(f"[s3] No S3 endpoint configured, skipping feedback upload for {session_id}")
+        return
+    try:
+        import boto3 as _boto3
+        s3 = _boto3.client(
+            "s3",
+            endpoint_url=endpoint,
+            aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID", ""),
+            aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY", ""),
+        )
+        date_str = datetime.now(timezone.utc).strftime("%Y%m%d")
+        s3_key = f"feedback/{date_str}/user_{session_id}.jsonl"
+        content = "\n".join(json.dumps(e) for e in feedback_events) + "\n"
+        s3.put_object(Bucket=S3_BUCKET, Key=s3_key, Body=content.encode())
+        print(f"[s3] Uploaded feedback → {s3_key}")
+    except Exception as e:
+        print(f"[s3] Failed to upload feedback for {session_id}: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app_instance: "FastAPI"):
     _create_tables()
@@ -233,6 +361,7 @@ app = FastAPI(title="SmartQueue LightGBM Serving", version=MODEL_VERSION, lifesp
 REDIS_HOST = os.environ.get("REDIS_HOST", "redis.smartqueue-platform.svc.cluster.local")
 REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
 SESSION_TTL_SECONDS = 300
+USER_SESSION_TTL_SECONDS = 90
 
 _redis = redis_lib.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
 
@@ -387,7 +516,7 @@ class CandidateSong(BaseModel):
 
 class UserFeatures(BaseModel):
     user_skip_rate: float = Field(..., ge=0.0, le=1.0)
-    user_favorite_genre_encoded: int = Field(..., ge=0, le=50)
+    user_favorite_genre_encoded: int = Field(..., ge=-1, le=50)
     user_watch_time_avg: float = Field(..., ge=0.0)
 
 
@@ -411,6 +540,7 @@ class QueueResponse(BaseModel):
 
 class SessionEndRequest(BaseModel):
     session_id: str
+    user_id: Optional[str] = None
 
 
 class SessionActiveResponse(BaseModel):
@@ -435,6 +565,42 @@ class SessionDetail(BaseModel):
 class ActiveSessionsResponse(BaseModel):
     count: int
     sessions: List[SessionDetail]
+
+
+class UserRegisterRequest(BaseModel):
+    user_id: str
+
+
+class UserRegisterResponse(BaseModel):
+    user_id: str
+    created: bool
+
+
+class UserQueueRequest(BaseModel):
+    user_id: str
+    session_id: str
+
+
+class UserQueueSong(BaseModel):
+    navidrome_id: str
+    rank: int
+    engagement_probability: float
+
+
+class UserQueueResponse(BaseModel):
+    session_id: str
+    user_id: str
+    is_cold_start: bool
+    songs: List[UserQueueSong]
+    model_version: str
+
+
+class HeartbeatRequest(BaseModel):
+    session_id: str
+
+
+class HeartbeatResponse(BaseModel):
+    ok: bool
 
 
 def build_feature_frame(req: QueueRequest) -> pd.DataFrame:
@@ -541,6 +707,119 @@ def rank(req: QueueRequest):
     return queue(req)
 
 
+@app.post("/user/register", response_model=UserRegisterResponse)
+def user_register(req: UserRegisterRequest):
+    conn = _pg_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO user_profiles (user_id) VALUES (%s) ON CONFLICT (user_id) DO NOTHING",
+                (req.user_id,),
+            )
+            created = cur.rowcount > 0
+        conn.commit()
+    finally:
+        conn.close()
+    return UserRegisterResponse(user_id=req.user_id, created=created)
+
+
+@app.post("/user/queue", response_model=UserQueueResponse)
+def user_queue(req: UserQueueRequest):
+    profile = _pg_get_user_profile(req.user_id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="User not found. Call /user/register first.")
+
+    is_cold_start = profile["total_sessions"] == 0 and profile["total_songs_heard"] == 0
+
+    if is_cold_start:
+        songs_raw = _pg_get_songs_random(10)
+        if not songs_raw:
+            raise HTTPException(status_code=503, detail="song_catalog is empty")
+        songs = [
+            UserQueueSong(navidrome_id=s["navidrome_id"], rank=i + 1, engagement_probability=0.0)
+            for i, s in enumerate(songs_raw)
+        ]
+        ranked_songs_data = [
+            {"video_id": s["navidrome_id"], "rank": i + 1, "engagement_probability": 0.0, "genre_encoded": s["genre_encoded"]}
+            for i, s in enumerate(songs_raw)
+        ]
+    else:
+        fav_genre = profile["fav_genre_encoded"]
+        songs_raw = (
+            _pg_get_songs_by_genre(fav_genre, n_fav=5, n_other=5)
+            if fav_genre != -1
+            else _pg_get_songs_random(10)
+        )
+        if not songs_raw:
+            raise HTTPException(status_code=503, detail="song_catalog is empty")
+
+        fav_enc = max(0, fav_genre)
+        queue_req = QueueRequest(
+            session_id=req.session_id,
+            user_features=UserFeatures(
+                user_skip_rate=profile["skip_rate"],
+                user_favorite_genre_encoded=fav_enc,
+                user_watch_time_avg=profile["watch_time_avg"],
+            ),
+            candidate_songs=[
+                CandidateSong(
+                    video_id=s["navidrome_id"],
+                    release_year=s["release_year"],
+                    context_segment=s["context_segment"],
+                    genre_encoded=s["genre_encoded"],
+                    subgenre_encoded=s["subgenre_encoded"],
+                )
+                for s in songs_raw
+            ],
+        )
+        queue_resp = queue(queue_req)
+        genre_lookup = {s["navidrome_id"]: s["genre_encoded"] for s in songs_raw}
+        songs = [
+            UserQueueSong(navidrome_id=rs.video_id, rank=rs.rank, engagement_probability=rs.engagement_probability)
+            for rs in queue_resp.ranked_songs
+        ]
+        ranked_songs_data = [
+            {"video_id": rs.video_id, "rank": rs.rank, "engagement_probability": rs.engagement_probability,
+             "genre_encoded": genre_lookup.get(rs.video_id, 0)}
+            for rs in queue_resp.ranked_songs
+        ]
+
+    _redis.setex(
+        f"session:{req.session_id}",
+        USER_SESSION_TTL_SECONDS,
+        json.dumps({
+            "session_id": req.session_id,
+            "user_id": req.user_id,
+            "is_cold_start": is_cold_start,
+            "user_features": {
+                "user_skip_rate": profile["skip_rate"],
+                "user_favorite_genre_encoded": profile["fav_genre_encoded"],
+                "user_watch_time_avg": profile["watch_time_avg"],
+            },
+            "ranked_songs": ranked_songs_data,
+            "feedback_events": [],
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "last_seen_at": datetime.now(timezone.utc).isoformat(),
+        }),
+    )
+    ACTIVE_SESSIONS_GAUGE.set(len(_redis.keys("session:*")))
+
+    return UserQueueResponse(
+        session_id=req.session_id,
+        user_id=req.user_id,
+        is_cold_start=is_cold_start,
+        songs=songs,
+        model_version=MODEL_VERSION,
+    )
+
+
+@app.post("/session/heartbeat", response_model=HeartbeatResponse)
+def session_heartbeat(req: HeartbeatRequest):
+    exists = _redis.exists(f"session:{req.session_id}")
+    if exists:
+        _redis.expire(f"session:{req.session_id}", USER_SESSION_TTL_SECONDS)
+    return HeartbeatResponse(ok=bool(exists))
+
 
 class SessionEndResponse(BaseModel):
     ok: bool
@@ -548,6 +827,14 @@ class SessionEndResponse(BaseModel):
 
 @app.post("/session/end", response_model=SessionEndResponse)
 def session_end(req: SessionEndRequest):
+    if req.user_id:
+        profile = _pg_get_user_profile(req.user_id)
+        if profile:
+            was_cold_start = profile["total_sessions"] == 0 and profile["total_songs_heard"] == 0
+            _pg_increment_total_sessions(req.user_id)
+            session_data = _redis_get(req.session_id)
+            if session_data and not was_cold_start:
+                _write_user_feedback_to_s3(req.session_id, session_data.get("feedback_events", []))
     _redis_delete(req.session_id)
     ACTIVE_SESSIONS_GAUGE.set(_redis.dbsize())
     return SessionEndResponse(ok=True)
@@ -595,10 +882,12 @@ def active_sessions_detailed():
 class SongFeedback(BaseModel):
     video_id: str
     action: str = Field(..., pattern="^(skip|complete)$")
+    time_listened_secs: Optional[float] = None
 
 
 class FeedbackRequest(BaseModel):
     session_id: str
+    user_id: Optional[str] = None
     events: List[SongFeedback]
     final_order: Optional[List[str]] = None
 
@@ -612,18 +901,18 @@ class FeedbackResponse(BaseModel):
 
 @app.post("/feedback", response_model=FeedbackResponse)
 def feedback(req: FeedbackRequest):
-    """
-    Receive user engagement feedback after a reranked queue is played.
-    - events: per-song skip/complete signals
-    - final_order: the video_id order the user actually listened in,
-      compared against the ML-ranked order to compute kept_ratio
-    """
     start_time = time.time()
     handler = "/feedback"
     status = "200"
     try:
         skips = 0
         completions = 0
+        session_data = _redis_get(req.session_id)
+        ranked_map = (
+            {s["video_id"]: s for s in session_data.get("ranked_songs", [])}
+            if session_data else {}
+        )
+
         for ev in req.events:
             if ev.action == "skip":
                 skips += 1
@@ -632,13 +921,34 @@ def feedback(req: FeedbackRequest):
                 completions += 1
                 FEEDBACK_COMPLETIONS.inc()
 
+            if req.user_id:
+                time_secs = ev.time_listened_secs or 0.0
+                _pg_update_user_feedback(req.user_id, ev.video_id, ev.action, time_secs)
+
+                if session_data is not None:
+                    song_info = ranked_map.get(ev.video_id, {})
+                    session_data.setdefault("feedback_events", []).append({
+                        "session_id": req.session_id,
+                        "video_id": ev.video_id,
+                        "rank_position": song_info.get("rank", 0),
+                        "predicted_engagement_prob": song_info.get("engagement_probability", 0.0),
+                        "actual_is_engaged": 1 if ev.action == "complete" else 0,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "model_version": MODEL_VERSION,
+                    })
+
+        if req.user_id and session_data is not None:
+            _redis.setex(
+                f"session:{req.session_id}",
+                USER_SESSION_TTL_SECONDS,
+                json.dumps(session_data),
+            )
+
         kept_ratio = None
-        session_data = _redis_get(req.session_id)
         if session_data and req.final_order and session_data.get("ranked_songs"):
             ml_order = [s["video_id"] for s in session_data["ranked_songs"]]
             matches = sum(
-                1 for ml_id, user_id in zip(ml_order, req.final_order)
-                if ml_id == user_id
+                1 for ml_id, uid in zip(ml_order, req.final_order) if ml_id == uid
             )
             kept_ratio = matches / max(len(ml_order), 1)
             FEEDBACK_SONGS_KEPT.observe(kept_ratio)
