@@ -46,14 +46,15 @@ spec:
           - name: model-uri
           - name: model-version
       container:
-        image: argoproj/argocd:v2.12.0
+        image: quay.io/argoproj/argocd:v2.12.0
         command: [sh, -c]
         args:
           - |
-            argocd login argocd-server.argocd.svc.cluster.local:443 \
+            set -e
+            argocd login argocd-server.argocd.svc.cluster.local \
               --username admin \
-              --password $(ARGOCD_PASSWORD) \
-              --insecure --grpc-web
+              --password "$ARGOCD_PASSWORD" \
+              --insecure --plaintext
             argocd app set {{inputs.parameters.app-name}} \
               --kustomize-image node1:5000/smartqueue-serving:v2
             argocd app set {{inputs.parameters.app-name}} \
@@ -75,7 +76,7 @@ spec:
           - name: model-version
           - name: action
       container:
-        image: bitnami/kubectl:1.30
+        image: quay.io/argoproj/argocd:v2.12.0
         command: [sh, -c]
         args:
           - |

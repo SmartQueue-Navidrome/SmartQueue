@@ -31,7 +31,7 @@ spec:
             RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
               http://smartqueue-serving.smartqueue-staging.svc.cluster.local:8000/queue \
               -H "Content-Type: application/json" \
-              -d '{"session_id":"test-001","user_features":{"skip_rate":0.3,"favorite_genre":"pop","watch_time_avg":45.2},"candidate_songs":[{"video_id":"v001","release_year":2023,"context_segment":"morning","genre":"pop","subgenre":"dance_pop"}]}')
+              -d '{"session_id":"test-001","user_features":{"user_skip_rate":0.3,"user_favorite_genre_encoded":5,"user_watch_time_avg":45.2},"candidate_songs":[{"video_id":"v001","release_year":2023,"context_segment":1,"genre_encoded":5,"subgenre_encoded":10}]}')
             HTTP_CODE=$(echo "$RESPONSE" | tail -1)
             BODY=$(echo "$RESPONSE" | head -n -1)
             echo "Response code: $HTTP_CODE"

@@ -87,12 +87,25 @@ spec:
           command: [sh, -c]
           args:
             - |
-              python retrain.py
+              python retrain.py || echo "WARN: retrain.py failed, will use fallback data"
               python -c "
+              import boto3, os
               from datetime import datetime, timezone, timedelta
+              s3 = boto3.client('s3',
+                  endpoint_url=os.environ['S3_ENDPOINT'],
+                  aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
+                  aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'])
               d = (datetime.now(timezone.utc) - timedelta(days=1)).strftime('%Y%m%d')
+              retrain_key = f'retrain/v{d}/train.parquet'
+              try:
+                  s3.head_object(Bucket=os.environ['S3_BUCKET'], Key=retrain_key)
+                  print(f'Using retrain data: {retrain_key}')
+                  path = retrain_key
+              except Exception:
+                  print(f'Retrain data {retrain_key} not found, falling back to processed/train.parquet')
+                  path = 'processed/train.parquet'
               with open('/tmp/data_path.txt', 'w') as f:
-                  f.write(f'retrain/v{d}/train.parquet')
+                  f.write(path)
               "
           env:
             - name: S3_ENDPOINT
@@ -124,6 +137,7 @@ spec:
           command: [sh, -c]
           args:
             - |
+              set -e
               python -c "
               import boto3, os
               s3 = boto3.client('s3',
