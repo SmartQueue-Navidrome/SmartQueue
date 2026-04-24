@@ -251,7 +251,7 @@ async def process_session(
                 f.write(json.dumps(rec) + "\n")
 
         # Upload to S3 then delete local file
-        s3_key = f"feedback/{date_str}/{filename}"
+        s3_key = f"feedback/{date_str}/generator/{filename}"
         if not LOCAL_MODE:
             await loop.run_in_executor(None, upload_feedback, local_path, s3_key)
             local_path.unlink()

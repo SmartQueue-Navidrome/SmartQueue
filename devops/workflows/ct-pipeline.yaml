@@ -122,6 +122,23 @@ spec:
                 secretKeyRef:
                   name: s3-secret
                   key: AWS_SECRET_ACCESS_KEY
+            - name: POSTGRES_HOST
+              value: postgres.smartqueue-platform.svc.cluster.local
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_DB
         outputs:
           parameters:
             - name: data-path

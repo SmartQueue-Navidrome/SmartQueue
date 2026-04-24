@@ -3,3 +3,4 @@ pyarrow
 boto3
 python-dotenv
 great-expectations
+psycopg2-binary

@@ -1,18 +1,14 @@
 """
 Pipeline 2 - Batch Retrain
 
-Reads feedback JSONL files, joins with production.parquet to recover video
-and user features, and produces a versioned retrain dataset.
+Reads feedback JSONL files from two S3 prefixes and builds a retrain dataset:
 
-User profile update strategy:
-  - Start from the pre-computed user features stored in production.parquet
-  - Merge in the actual events from feedback (time_in_video proxy via is_engaged)
-  - Re-compute user features over the combined history
-  - This means the same session accumulates a richer profile across generator loops
+  feedback/{date}/generator/ → join production.parquet for features
+  feedback/{date}/real/      → join Postgres song_catalog + user_profiles for features
 
 Output:
   data/retrain/v{YYYYMMDD}/
-    train.parquet   — original train + new feedback rows
+    train.parquet   — retrain rows (generator + real combined)
     metadata.json   — feedback count, label distribution, timestamp
 
 Usage:
@@ -24,10 +20,14 @@ import sys
 import json
 import time
 import argparse
+import shutil
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
+from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
+import psycopg2
+import psycopg2.extras
 
 from feedback_checks import run_checks
 
@@ -37,8 +37,18 @@ import s3
 LOCAL_MODE = os.getenv("LOCAL_MODE", "false").lower() == "true"
 
 SKIP_THRESHOLD = 30
-SCRIPT_DIR     = Path(__file__).resolve().parent
 DEFAULT_DATA   = Path(os.getenv("DATA_DIR", "/app/data"))
+
+
+# ── Postgres connection ───────────────────────────────────────────────────────
+
+def _pg_conn():
+    return psycopg2.connect(
+        host=os.environ["POSTGRES_HOST"],
+        user=os.environ["POSTGRES_USER"],
+        password=os.environ["POSTGRES_PASSWORD"],
+        dbname=os.environ["POSTGRES_DB"],
+    )
 
 
 # ── user feature computation (same logic as feature_service.py) ───────────────
@@ -64,75 +74,80 @@ def compute_user_features(events: list[dict]) -> dict:
 
 # ── load feedback ─────────────────────────────────────────────────────────────
 
-def load_feedback(feedback_dir: Path, date_str: str) -> pd.DataFrame:
-    if LOCAL_MODE:
-        # Local mode: read from local feedback dir
-        files = list(feedback_dir.glob(f"{date_str}_*.jsonl"))
-        if not files:
-            raise FileNotFoundError(f"No feedback files found for date {date_str} in {feedback_dir}")
-        print(f"  Found {len(files):,} feedback files for {date_str} (local)")
-    else:
-        # Production mode: parallel download from S3 feedback/{date_str}/
-        from concurrent.futures import ThreadPoolExecutor
-        objects = s3.list_objects(prefix=f"feedback/{date_str}/")
-        if not objects:
-            raise FileNotFoundError(f"No feedback files found on S3 for date {date_str}")
-        print(f"  Found {len(objects):,} feedback files for {date_str} (S3), downloading ...")
-        feedback_dir.mkdir(parents=True, exist_ok=True)
-
-        def _download(obj):
-            filename = Path(obj["Key"]).name
-            s3.download_file(obj["Key"], feedback_dir / filename)
-
-        with ThreadPoolExecutor(max_workers=32) as pool:
-            list(pool.map(_download, objects))
-        files = list(feedback_dir.glob(f"{date_str}_*.jsonl"))
-
+def _read_jsonl_dir(directory: Path, source: str) -> list[dict]:
     records = []
-    for f in files:
+    for f in sorted(directory.glob("*.jsonl")):
         with open(f) as fh:
             for line in fh:
                 line = line.strip()
                 if line:
-                    records.append(json.loads(line))
+                    records.append({**json.loads(line), "source": source})
+    return records
 
-    df = pd.DataFrame(records)
-    print(f"  Loaded {len(df):,} feedback records from {df['session_id'].nunique():,} sessions")
+
+def load_feedback(feedback_dir: Path, date_str: str) -> pd.DataFrame:
+    all_records = []
+
+    if LOCAL_MODE:
+        for source in ("generator", "real"):
+            src_dir = feedback_dir / date_str / source
+            if src_dir.exists():
+                all_records.extend(_read_jsonl_dir(src_dir, source))
+        if not all_records:
+            raise FileNotFoundError(f"No feedback files found for date {date_str} in {feedback_dir}")
+    else:
+        for source in ("generator", "real"):
+            prefix = f"feedback/{date_str}/{source}/"
+            objects = s3.list_objects(prefix=prefix)
+            if not objects:
+                continue
+            src_dir = feedback_dir / date_str / source
+            src_dir.mkdir(parents=True, exist_ok=True)
+
+            def _download(obj, d=src_dir):
+                s3.download_file(obj["Key"], d / Path(obj["Key"]).name)
+
+            with ThreadPoolExecutor(max_workers=32) as pool:
+                list(pool.map(_download, objects))
+
+            all_records.extend(_read_jsonl_dir(src_dir, source))
+
+        if not all_records:
+            raise FileNotFoundError(f"No feedback files found on S3 for date {date_str}")
+
+    df = pd.DataFrame(all_records)
+    gen_count  = int((df["source"] == "generator").sum())
+    real_count = int((df["source"] == "real").sum())
+    print(f"  Loaded {len(df):,} records from {df['session_id'].nunique():,} sessions "
+          f"(generator={gen_count:,}, real={real_count:,})")
     return df
 
 
-# ── build retrain rows ────────────────────────────────────────────────────────
+# ── generator path: join production.parquet ───────────────────────────────────
 
-def build_retrain_rows(feedback_df: pd.DataFrame, production_df: pd.DataFrame) -> pd.DataFrame:
-    # Join feedback with production to get video features
+def _build_generator_rows(gen_df: pd.DataFrame, production_df: pd.DataFrame) -> pd.DataFrame:
     prod_video = production_df[["video_id", "genre_encoded", "subgenre_encoded",
                                 "release_year", "context_segment"]].drop_duplicates("video_id")
-    merged = feedback_df.merge(prod_video, on="video_id", how="inner")
+    merged = gen_df.merge(prod_video, on="video_id", how="inner")
 
-    if len(merged) < len(feedback_df):
-        dropped = len(feedback_df) - len(merged)
-        print(f"  Warning: {dropped:,} feedback rows dropped (video_id not in production)")
+    dropped = len(gen_df) - len(merged)
+    if dropped:
+        print(f"  Generator: {dropped:,} rows dropped (video_id not in production)")
 
-    # Get pre-computed user profile per session from production
     prod_profile = production_df.groupby("session_id")[
         ["user_skip_rate", "user_favorite_genre_encoded", "user_watch_time_avg"]
     ].first()
 
-    # Join real time_in_video from production.parquet (preserved for production split)
     prod_time = production_df[["session_id", "video_id", "time_in_video"]]
     merged = merged.merge(prod_profile, on="session_id", how="left")
     merged = merged.merge(prod_time, on=["session_id", "video_id"], how="left")
     merged["time_in_video"] = merged["time_in_video"].fillna(10.0)
 
-    # Re-compute user features per session (precomputed + feedback events merged)
     rows = []
     for session_id, group in merged.groupby("session_id"):
-        # Combine pre-stored profile as synthetic events + actual feedback events
         pre = prod_profile.loc[session_id] if session_id in prod_profile.index else None
-
         events = []
         if pre is not None:
-            # Add pre-computed profile as a synthetic "history" event
             events.append({
                 "time_in_video": float(pre["user_watch_time_avg"]),
                 "genre_encoded": int(pre["user_favorite_genre_encoded"]),
@@ -142,9 +157,7 @@ def build_retrain_rows(feedback_df: pd.DataFrame, production_df: pd.DataFrame) -
                 "time_in_video": float(row["time_in_video"]),
                 "genre_encoded": int(row["genre_encoded"]),
             })
-
         uf = compute_user_features(events)
-
         for _, row in group.iterrows():
             rows.append({
                 "session_id":                  session_id,
@@ -162,6 +175,93 @@ def build_retrain_rows(feedback_df: pd.DataFrame, production_df: pd.DataFrame) -
     return pd.DataFrame(rows)
 
 
+# ── real-user path: join Postgres song_catalog + user_profiles ────────────────
+
+def _build_real_rows(real_df: pd.DataFrame) -> pd.DataFrame:
+    conn = _pg_conn()
+    try:
+        video_ids = real_df["video_id"].dropna().unique().tolist()
+        user_ids  = real_df["user_id"].dropna().unique().tolist()
+
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "SELECT navidrome_id, genre_encoded, subgenre_encoded, release_year, context_segment "
+                "FROM song_catalog WHERE navidrome_id = ANY(%s)",
+                (video_ids,),
+            )
+            song_map = {r["navidrome_id"]: dict(r) for r in cur.fetchall()}
+
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "SELECT user_id, skip_rate, fav_genre_encoded, watch_time_avg "
+                "FROM user_profiles WHERE user_id = ANY(%s)",
+                (user_ids,),
+            )
+            user_map = {r["user_id"]: dict(r) for r in cur.fetchall()}
+    finally:
+        conn.close()
+
+    rows = []
+    dropped = 0
+    for _, row in real_df.iterrows():
+        song = song_map.get(row["video_id"])
+        if song is None:
+            dropped += 1
+            continue
+
+        user = user_map.get(row.get("user_id", ""))
+        if user is not None:
+            user_skip_rate = float(user["skip_rate"])
+            user_fav_genre = int(user["fav_genre_encoded"]) if user["fav_genre_encoded"] >= 0 else int(song["genre_encoded"])
+            user_watch_avg = float(user["watch_time_avg"])
+        else:
+            user_skip_rate = 0.5
+            user_fav_genre = int(song["genre_encoded"])
+            user_watch_avg = 0.0
+
+        rows.append({
+            "session_id":                  row["session_id"],
+            "video_id":                    row["video_id"],
+            "is_engaged":                  int(row["actual_is_engaged"]),
+            "genre_encoded":               int(song["genre_encoded"]),
+            "subgenre_encoded":            int(song["subgenre_encoded"]),
+            "release_year":                int(song["release_year"]),
+            "context_segment":             int(song["context_segment"]),
+            "user_skip_rate":              user_skip_rate,
+            "user_favorite_genre_encoded": user_fav_genre,
+            "user_watch_time_avg":         user_watch_avg,
+        })
+
+    if dropped:
+        print(f"  Real-user: {dropped:,} rows dropped (video_id not in song_catalog)")
+
+    return pd.DataFrame(rows)
+
+
+# ── combined build ────────────────────────────────────────────────────────────
+
+def build_retrain_rows(feedback_df: pd.DataFrame, production_df: pd.DataFrame) -> pd.DataFrame:
+    gen_df  = feedback_df[feedback_df["source"] == "generator"]
+    real_df = feedback_df[feedback_df["source"] == "real"]
+
+    frames = []
+
+    if len(gen_df):
+        gen_rows = _build_generator_rows(gen_df, production_df)
+        print(f"  Generator rows: {len(gen_rows):,}")
+        frames.append(gen_rows)
+
+    if len(real_df):
+        real_rows = _build_real_rows(real_df)
+        print(f"  Real-user rows: {len(real_rows):,}")
+        frames.append(real_rows)
+
+    if not frames:
+        return pd.DataFrame()
+
+    return pd.concat(frames, ignore_index=True)
+
+
 # ── drift monitoring ─────────────────────────────────────────────────────────
 
 DRIFT_FEATURES = [
@@ -170,15 +270,10 @@ DRIFT_FEATURES = [
     "user_watch_time_avg",
     "genre_encoded",
 ]
-DRIFT_THRESHOLD = 0.20  # 20% deviation triggers warning
+DRIFT_THRESHOLD = 0.20
 
 
 def detect_drift(new_rows: pd.DataFrame, production_df: pd.DataFrame) -> dict:
-    """
-    Compare feature distributions between recent feedback and baseline (production.parquet).
-    Logs a warning if any feature mean deviates more than DRIFT_THRESHOLD from baseline.
-    Returns drift report dict (written to metadata.json).
-    """
     print("  Drift monitoring:")
     drift_report = {}
     any_drift = False
@@ -186,10 +281,7 @@ def detect_drift(new_rows: pd.DataFrame, production_df: pd.DataFrame) -> dict:
     for feat in DRIFT_FEATURES:
         baseline_mean = production_df[feat].mean()
         recent_mean   = new_rows[feat].mean()
-        if baseline_mean == 0:
-            diff_pct = 0.0
-        else:
-            diff_pct = abs(recent_mean - baseline_mean) / abs(baseline_mean)
+        diff_pct = 0.0 if baseline_mean == 0 else abs(recent_mean - baseline_mean) / abs(baseline_mean)
 
         drifted = diff_pct > DRIFT_THRESHOLD
         status  = "⚠ DRIFT" if drifted else "✓"
@@ -212,7 +304,7 @@ def detect_drift(new_rows: pd.DataFrame, production_df: pd.DataFrame) -> dict:
     return drift_report
 
 
-# ── compiled retrain dataset quality check ────────────────────────────────────
+# ── retrain dataset quality check ─────────────────────────────────────────────
 
 RETRAIN_FEATURE_COLS = [
     "session_id", "video_id", "is_engaged",
@@ -223,34 +315,26 @@ RETRAIN_MIN_ROWS = 1500
 
 
 def _check_retrain_dataset(df: pd.DataFrame) -> None:
-    """
-    Validate compiled retrain DataFrame before saving and training.
-    Raises ValueError if any check fails.
-    """
     print("  Retrain dataset quality checks:")
     errors = []
 
-    # Row count
     if len(df) < RETRAIN_MIN_ROWS:
         errors.append(f"✗ row count {len(df):,} < {RETRAIN_MIN_ROWS:,} (not enough data to retrain)")
     else:
         print(f"    ✓ row count {len(df):,} ≥ {RETRAIN_MIN_ROWS:,}")
 
-    # Required columns
     missing = [c for c in RETRAIN_FEATURE_COLS if c not in df.columns]
     if missing:
         errors.append(f"✗ missing columns: {missing}")
     else:
         print(f"    ✓ all required columns present")
 
-    # No nulls
     null_cols = [c for c in RETRAIN_FEATURE_COLS if df[c].isnull().any()]
     if null_cols:
         errors.append(f"✗ null values found in: {null_cols}")
     else:
         print(f"    ✓ no nulls in feature columns")
 
-    # Label distribution
     engaged_rate = df["is_engaged"].mean()
     if not (0.50 <= engaged_rate <= 0.85):
         errors.append(
@@ -274,7 +358,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-dir", default=str(DEFAULT_DATA))
     parser.add_argument("--date", default=None,
-                        help="Date to process (YYYYMMDD). Defaults to today (UTC).")
+                        help="Date to process (YYYYMMDD). Defaults to yesterday (UTC).")
     args = parser.parse_args()
 
     data_dir      = Path(args.data_dir)
@@ -287,7 +371,7 @@ def main():
 
     total_start = time.perf_counter()
 
-    # 1. Load feedback
+    # 1. Load feedback (both sources, tagged with source column)
     print("\n[1/4] Loading feedback ...")
     t = time.perf_counter()
     feedback_df = load_feedback(feedback_dir, date_str)
@@ -295,10 +379,11 @@ def main():
 
     # 1b. Data quality checks
     print("\n[1b] Running data quality checks ...")
+    t = time.perf_counter()
     run_checks(feedback_df)
     print(f"[1b] Done in {time.perf_counter()-t:.1f}s")
 
-    # 2. Load production.parquet
+    # 2. Load production.parquet (needed for generator path)
     print("\n[2/4] Loading production.parquet ...")
     t = time.perf_counter()
     prod_parquet = processed_dir / "production.parquet"
@@ -309,13 +394,13 @@ def main():
     production_df = pd.read_parquet(prod_parquet)
     print(f"  {len(production_df):,} rows  ({time.perf_counter()-t:.1f}s)")
 
-    # 3. Build feedback rows with updated user features
+    # 3. Build retrain rows (generator → production.parquet, real → Postgres)
     print("\n[3/4] Building retrain rows ...")
     t = time.perf_counter()
     new_rows = build_retrain_rows(feedback_df, production_df)
-    print(f"  {len(new_rows):,} new rows built  ({time.perf_counter()-t:.1f}s)")
+    print(f"  {len(new_rows):,} total rows built  ({time.perf_counter()-t:.1f}s)")
 
-    # 3b. Compiled retrain dataset quality checks
+    # 3b. Quality checks
     print("\n[3b] Running retrain dataset quality checks ...")
     t = time.perf_counter()
     _check_retrain_dataset(new_rows)
@@ -325,22 +410,25 @@ def main():
     print("\n[3c] Drift monitoring ...")
     drift_report = detect_drift(new_rows, production_df)
 
-    # 4. Save retrain dataset (feedback only — no concat with original train)
+    # 4. Save
     print("\n[4/4] Saving retrain dataset ...")
     t = time.perf_counter()
     out_path = retrain_dir / "train.parquet"
     new_rows.to_parquet(out_path, index=False)
-    print(f"  {len(new_rows):,} rows saved → {out_path}  ({time.perf_counter()-t:.1f}s)")
+    print(f"  {len(new_rows):,} rows → {out_path}  ({time.perf_counter()-t:.1f}s)")
 
-    # Metadata
+    gen_count  = int((feedback_df["source"] == "generator").sum())
+    real_count = int((feedback_df["source"] == "real").sum())
     metadata = {
-        "timestamp":         datetime.now(timezone.utc).isoformat(),
-        "version":           f"v{date_str}",
-        "feedback_files":    len(list(feedback_dir.glob(f"{date_str}_*.jsonl"))),
-        "feedback_sessions": int(feedback_df["session_id"].nunique()),
-        "total_rows":        int(len(new_rows)),
-        "engaged_rate":      round(float(new_rows["is_engaged"].mean()), 4),
-        "drift":             drift_report,
+        "timestamp":          datetime.now(timezone.utc).isoformat(),
+        "version":            f"v{date_str}",
+        "feedback_generator": gen_count,
+        "feedback_real":      real_count,
+        "feedback_total":     gen_count + real_count,
+        "feedback_sessions":  int(feedback_df["session_id"].nunique()),
+        "total_rows":         int(len(new_rows)),
+        "engaged_rate":       round(float(new_rows["is_engaged"].mean()), 4),
+        "drift":              drift_report,
     }
     with open(retrain_dir / "metadata.json", "w") as f:
         json.dump(metadata, f, indent=2)
@@ -351,7 +439,7 @@ def main():
     print(f"Retrain data → {retrain_dir}")
     print(f"{'='*50}")
 
-    # Upload retrain output to S3
+    # 5. Upload to S3 + cleanup
     if not LOCAL_MODE:
         print("\n[5/4] Uploading to S3 ...")
         t = time.perf_counter()
@@ -359,16 +447,14 @@ def main():
         n = s3.upload_dir(retrain_dir, s3_prefix)
         print(f"  {n} file(s) → s3://{s3.BUCKET}/{s3_prefix}/  ({time.perf_counter()-t:.1f}s)")
 
-        # Clean up local files for this date only
         print("\n[6/4] Cleaning up local files ...")
-        import shutil
-        feedback_files = list(feedback_dir.glob(f"{date_str}_*.jsonl"))
-        for f in feedback_files:
-            f.unlink()
-        print(f"  Deleted {len(feedback_files)} feedback file(s) for {date_str}")
+        for source in ("generator", "real"):
+            src_dir = feedback_dir / date_str / source
+            if src_dir.exists():
+                shutil.rmtree(src_dir)
+                print(f"  Deleted {src_dir}")
         shutil.rmtree(retrain_dir)
         print(f"  Deleted {retrain_dir}")
-
     else:
         print("\nLOCAL_MODE=true — skipping S3 upload and cleanup.")
 

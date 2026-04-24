@@ -342,7 +342,7 @@ def _write_user_feedback_to_s3(session_id: str, feedback_events: list):
             aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY", ""),
         )
         date_str = datetime.now(timezone.utc).strftime("%Y%m%d")
-        s3_key = f"feedback/{date_str}/user_{session_id}.jsonl"
+        s3_key = f"feedback/{date_str}/real/user_{session_id}.jsonl"
         content = "\n".join(json.dumps(e) for e in feedback_events) + "\n"
         s3.put_object(Bucket=S3_BUCKET, Key=s3_key, Body=content.encode())
         print(f"[s3] Uploaded feedback → {s3_key}")
@@ -929,6 +929,7 @@ def feedback(req: FeedbackRequest):
                     song_info = ranked_map.get(ev.video_id, {})
                     session_data.setdefault("feedback_events", []).append({
                         "session_id": req.session_id,
+                        "user_id": req.user_id,
                         "video_id": ev.video_id,
                         "rank_position": song_info.get("rank", 0),
                         "predicted_engagement_prob": song_info.get("engagement_probability", 0.0),

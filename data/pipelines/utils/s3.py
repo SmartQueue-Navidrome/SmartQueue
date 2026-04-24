@@ -66,11 +66,14 @@ def list_objects(prefix: str = "", bucket: str = BUCKET) -> list[dict]:
     return results
 
 
-def delete_objects(keys: list[str], bucket: str = BUCKET):
-    """Delete a list of S3 keys."""
+def delete_objects(keys: list[str], bucket: str = BUCKET, chunk_size: int = 1000):
+    """Delete a list of S3 keys in batches (S3 API limit: 1000 per call)."""
     if not keys:
         return
-    get_client().delete_objects(
-        Bucket=bucket,
-        Delete={"Objects": [{"Key": k} for k in keys]},
-    )
+    client = get_client()
+    for i in range(0, len(keys), chunk_size):
+        batch = keys[i : i + chunk_size]
+        client.delete_objects(
+            Bucket=bucket,
+            Delete={"Objects": [{"Key": k} for k in batch]},
+        )
