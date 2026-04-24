@@ -12,6 +12,7 @@ spec:
       containers:
         - name: seed
           image: node1:5000/smartqueue-serving:v2
+          imagePullPolicy: Always
           command: ["python", "/app/seed_song_catalog.py", "--metadata", "/data/song_catalog_metadata.json"]
           env:
             - name: NAVIDROME_URL
