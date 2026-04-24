@@ -67,9 +67,8 @@ def get_all_navidrome_songs(base_url, token):
 def normalize(s):
     if not s:
         return ""
-    normalized = unicodedata.normalize("NFKD", s)
-    ascii_text = normalized.encode("ascii", "ignore").decode("ascii")
-    return " ".join(ascii_text.lower().strip().split())
+    normalized = unicodedata.normalize("NFKC", s)
+    return " ".join(normalized.casefold().strip().split())
 
 
 def filename_stem(filename):
