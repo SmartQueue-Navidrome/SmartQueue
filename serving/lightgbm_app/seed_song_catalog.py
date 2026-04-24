@@ -26,6 +26,7 @@ import argparse
 import json
 import os
 import sys
+import unicodedata
 
 import psycopg2
 import requests
@@ -64,7 +65,19 @@ def get_all_navidrome_songs(base_url, token):
 
 
 def normalize(s):
-    return s.lower().strip() if s else ""
+    if not s:
+        return ""
+    normalized = unicodedata.normalize("NFKD", s)
+    ascii_text = normalized.encode("ascii", "ignore").decode("ascii")
+    return " ".join(ascii_text.lower().strip().split())
+
+
+def filename_stem(filename):
+    return normalize(str(filename).removesuffix(".mp3"))
+
+
+def track_artist_key(track_name, artist_name):
+    return f"{normalize(track_name)}|||{normalize(artist_name)}"
 
 
 def seed(metadata_path):
@@ -87,12 +100,18 @@ def seed(metadata_path):
         metadata = json.load(f)
     print(f"[metadata] Loaded {len(metadata)} entries from {metadata_path}")
 
-    # Build lookup: filename stem (e.g. "1229416") -> entry
-    meta_lookup = {}
+    # Build metadata lookups for both the new ID3-based world and the older
+    # filename-based library state.
+    meta_by_track_artist = {}
+    meta_by_filename = {}
     for entry in metadata:
-        stem = entry.get("filename", "").replace(".mp3", "").strip()
+        title_artist = track_artist_key(entry.get("track_name", ""), entry.get("artist_name", ""))
+        if title_artist != "|||":
+            meta_by_track_artist[title_artist] = entry
+
+        stem = filename_stem(entry.get("filename", ""))
         if stem:
-            meta_lookup[stem] = entry
+            meta_by_filename[stem] = entry
 
     # Login to Navidrome
     print(f"[navidrome] Logging in as '{nd_user}' at {base_url} ...")
@@ -119,11 +138,22 @@ def seed(metadata_path):
 
     matched = 0
     skipped = 0
+    matched_by_title_artist = 0
+    matched_by_filename = 0
 
     with conn.cursor() as cur:
         for song in nd_songs:
-            key = normalize(song.get("title", ""))
-            meta = meta_lookup.get(key)
+            match_source = None
+            meta = meta_by_track_artist.get(
+                track_artist_key(song.get("title", ""), song.get("artist", ""))
+            )
+            if meta:
+                match_source = "title_artist"
+            else:
+                meta = meta_by_filename.get(normalize(song.get("title", "")))
+                if meta:
+                    match_source = "filename_fallback"
+
             if not meta:
                 print(f"  [skip] No metadata match: '{song.get('title')}' / '{song.get('artist')}'")
                 skipped += 1
@@ -149,16 +179,27 @@ def seed(metadata_path):
                 ),
             )
             matched += 1
+            if match_source == "title_artist":
+                matched_by_title_artist += 1
+            elif match_source == "filename_fallback":
+                matched_by_filename += 1
 
     conn.commit()
     conn.close()
 
-    print(f"\n[done] Inserted/updated: {matched} | Skipped (no match): {skipped}")
+    print(
+        "\n[done] "
+        f"Inserted/updated: {matched} | "
+        f"Skipped (no match): {skipped} | "
+        f"Matched by title+artist: {matched_by_title_artist} | "
+        f"Matched by filename fallback: {matched_by_filename}"
+    )
     if skipped > 0:
         print(
             "  → Skipped songs have no metadata entry.\n"
-            "    Check that track_name + artist_name in your metadata JSON\n"
-            "    exactly match the title + artist fields in Navidrome."
+            "    Check whether Navidrome title/artist values differ from\n"
+            "    track_name/artist_name in the metadata JSON, or whether the\n"
+            "    filename fallback needs to cover an additional case."
         )
 
 
