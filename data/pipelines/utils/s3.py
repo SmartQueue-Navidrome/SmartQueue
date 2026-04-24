@@ -58,9 +58,12 @@ def download_file(s3_key: str, local_path: Path, bucket: str = BUCKET):
 
 
 def list_objects(prefix: str = "", bucket: str = BUCKET) -> list[dict]:
-    """Return list of objects (Key, Size) under a prefix."""
-    resp = get_client().list_objects_v2(Bucket=bucket, Prefix=prefix)
-    return resp.get("Contents", [])
+    """Return list of all objects (Key, Size) under a prefix, handling pagination."""
+    paginator = get_client().get_paginator("list_objects_v2")
+    results = []
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+        results.extend(page.get("Contents", []))
+    return results
 
 
 def delete_objects(keys: list[str], bucket: str = BUCKET):
