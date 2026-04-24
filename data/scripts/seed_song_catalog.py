@@ -87,11 +87,12 @@ def seed(metadata_path):
         metadata = json.load(f)
     print(f"[metadata] Loaded {len(metadata)} entries from {metadata_path}")
 
-    # Build lookup: (normalized_title, normalized_artist) -> entry
+    # Build lookup: filename stem (e.g. "1229416") -> entry
     meta_lookup = {}
     for entry in metadata:
-        key = (normalize(entry["track_name"]), normalize(entry["artist_name"]))
-        meta_lookup[key] = entry
+        stem = entry.get("filename", "").replace(".mp3", "").strip()
+        if stem:
+            meta_lookup[stem] = entry
 
     # Login to Navidrome
     print(f"[navidrome] Logging in as '{nd_user}' at {base_url} ...")
@@ -121,7 +122,7 @@ def seed(metadata_path):
 
     with conn.cursor() as cur:
         for song in nd_songs:
-            key = (normalize(song.get("title", "")), normalize(song.get("artist", "")))
+            key = normalize(song.get("title", ""))
             meta = meta_lookup.get(key)
             if not meta:
                 print(f"  [skip] No metadata match: '{song.get('title')}' / '{song.get('artist')}'")
