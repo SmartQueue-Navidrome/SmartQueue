@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: navidrome
-          image: node1:5000/smartqueue-navidrome:v1
+          image: node1:5000/smartqueue-navidrome:v2
           imagePullPolicy: Always
           ports:
             - containerPort: 4533
