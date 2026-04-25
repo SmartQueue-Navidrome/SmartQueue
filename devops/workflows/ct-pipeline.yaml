@@ -14,11 +14,12 @@ spec:
     entrypoint: ct-main
     serviceAccountName: argo-workflow-sa
     ttlStrategy:
-      secondsAfterCompletion: 86400
-      secondsAfterSuccess: 86400
-      secondsAfterFailure: 172800
+      secondsAfterCompletion: 259200   # 3 days
+      secondsAfterSuccess: 259200      # 3 days
+      secondsAfterFailure: 604800      # 7 days
     podGC:
-      strategy: OnWorkflowCompletion
+      strategy: OnWorkflowSuccess
+      deleteDelayDuration: 86400s      # keep pods 24h after workflow succeeds
     templates:
       - name: ct-main
         steps:
