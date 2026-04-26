@@ -326,28 +326,43 @@ def _pg_increment_total_sessions(user_id: str):
 
 # ─── S3 feedback write ────────────────────────────────────────────────────────
 
-def _write_user_feedback_to_s3(session_id: str, feedback_events: list):
-    if not feedback_events:
-        return
+def _get_s3_client():
     endpoint = os.environ.get("MLFLOW_S3_ENDPOINT_URL", "")
     if not endpoint:
-        print(f"[s3] No S3 endpoint configured, skipping feedback upload for {session_id}")
+        return None
+    import boto3 as _boto3
+    return _boto3.client(
+        "s3",
+        endpoint_url=endpoint,
+        aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID", ""),
+        aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY", ""),
+    )
+
+
+def _append_feedback_to_s3(session_id: str, new_events: list):
+    """Append feedback events to S3 incrementally (called on each /feedback)."""
+    if not new_events:
+        return
+    s3 = _get_s3_client()
+    if s3 is None:
+        print(f"[s3] No S3 endpoint configured, skipping feedback for {session_id}")
         return
     try:
-        import boto3 as _boto3
-        s3 = _boto3.client(
-            "s3",
-            endpoint_url=endpoint,
-            aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID", ""),
-            aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY", ""),
-        )
         date_str = datetime.now(timezone.utc).strftime("%Y%m%d")
         s3_key = f"feedback/{date_str}/real/user_{session_id}.jsonl"
-        content = "\n".join(json.dumps(e) for e in feedback_events) + "\n"
+        # Read existing content if any
+        existing = ""
+        try:
+            obj = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)
+            existing = obj["Body"].read().decode()
+        except Exception:
+            pass  # file doesn't exist yet
+        new_content = "\n".join(json.dumps(e) for e in new_events) + "\n"
+        content = existing + new_content
         s3.put_object(Bucket=S3_BUCKET, Key=s3_key, Body=content.encode())
-        print(f"[s3] Uploaded feedback → {s3_key}")
+        print(f"[s3] Appended {len(new_events)} event(s) → {s3_key}")
     except Exception as e:
-        print(f"[s3] Failed to upload feedback for {session_id}: {e}")
+        print(f"[s3] Failed to append feedback for {session_id}: {e}")
 
 
 @asynccontextmanager
@@ -830,11 +845,7 @@ def session_end(req: SessionEndRequest):
     if req.user_id:
         profile = _pg_get_user_profile(req.user_id)
         if profile:
-            was_cold_start = profile["total_sessions"] == 0 and profile["total_songs_heard"] == 0
             _pg_increment_total_sessions(req.user_id)
-            session_data = _redis_get(req.session_id)
-            if session_data and not was_cold_start:
-                _write_user_feedback_to_s3(req.session_id, session_data.get("feedback_events", []))
     _redis_delete(req.session_id)
     ACTIVE_SESSIONS_GAUGE.set(_redis.dbsize())
     return SessionEndResponse(ok=True)
@@ -939,6 +950,11 @@ def feedback(req: FeedbackRequest):
                     })
 
         if req.user_id and session_data is not None:
+            # Write new feedback events to S3 incrementally
+            new_events = session_data.get("feedback_events", [])[-len(req.events):]
+            if not session_data.get("is_cold_start", False) and new_events:
+                _append_feedback_to_s3(req.session_id, new_events)
+
             _redis.setex(
                 f"session:{req.session_id}",
                 USER_SESSION_TTL_SECONDS,
