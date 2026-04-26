@@ -799,6 +799,10 @@ def user_queue(req: UserQueueRequest):
             for rs in queue_resp.ranked_songs
         ]
 
+    # Increment total_sessions at session creation (not session end)
+    # so the user exits cold start even if they don't finish all songs.
+    _pg_increment_total_sessions(req.user_id)
+
     _redis.setex(
         f"session:{req.session_id}",
         USER_SESSION_TTL_SECONDS,
@@ -842,10 +846,6 @@ class SessionEndResponse(BaseModel):
 
 @app.post("/session/end", response_model=SessionEndResponse)
 def session_end(req: SessionEndRequest):
-    if req.user_id:
-        profile = _pg_get_user_profile(req.user_id)
-        if profile:
-            _pg_increment_total_sessions(req.user_id)
     _redis_delete(req.session_id)
     ACTIVE_SESSIONS_GAUGE.set(_redis.dbsize())
     return SessionEndResponse(ok=True)
