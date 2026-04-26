@@ -17,6 +17,7 @@ spec:
       containers:
         - name: serving
           image: node1:5000/smartqueue-serving:v3
+          imagePullPolicy: Always
           ports:
             - containerPort: 8000
           env:
