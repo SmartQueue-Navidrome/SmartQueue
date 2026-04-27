@@ -55,13 +55,25 @@ spec:
               --username admin \
               --password "$ARGOCD_PASSWORD" \
               --insecure --plaintext
-            argocd app set {{inputs.parameters.app-name}} \
-              --kustomize-image node1:5000/smartqueue-serving:v2
-            argocd app set {{inputs.parameters.app-name}} \
-              --parameter MODEL_URI={{inputs.parameters.model-uri}} \
-              --parameter MODEL_VERSION={{inputs.parameters.model-version}} || true
+
+            # Sync git state (image tag controlled by git, not overridden here)
             argocd app sync {{inputs.parameters.app-name}} --force
             argocd app wait {{inputs.parameters.app-name}} --timeout 120
+
+            # Update model env vars via kubectl patch (ArgoCD kustomize does not support --parameter)
+            case "{{inputs.parameters.app-name}}" in
+              smartqueue-prod)    NS="smartqueue-prod" ;;
+              smartqueue-staging) NS="smartqueue-staging" ;;
+              smartqueue-canary)  NS="smartqueue-canary" ;;
+              *)                  NS="smartqueue-prod" ;;
+            esac
+
+            kubectl set env deployment/smartqueue-serving -n "$NS" \
+              MODEL_URI={{inputs.parameters.model-uri}} \
+              MODEL_VERSION={{inputs.parameters.model-version}}
+
+            kubectl rollout status deployment/smartqueue-serving -n "$NS" --timeout=120s
+            echo "Deployed model {{inputs.parameters.model-version}} to $NS"
         env:
           - name: ARGOCD_PASSWORD
             valueFrom:
