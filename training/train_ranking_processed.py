@@ -56,33 +56,78 @@ def load_config(config_path: str) -> dict:
     return cfg
 
 
-def load_and_prepare_data(cfg: dict) -> pd.DataFrame:
-    """
-    Load processed train.parquet memory-safely using pyarrow iter_batches.
-    Expects Pipeline 1 output with pre-computed features and label.
-    """
-    data_path = os.environ.get("DATA_PATH") or cfg["data_path"]
-    max_samples = cfg.get("max_samples", 200000)
+BASE_DATA_S3_KEY   = "processed/train.parquet"
+BASE_DATA_LOCAL    = "/tmp/base_train.parquet"
 
-    print(f"[data] Loading {max_samples} rows from {data_path}...")
 
-    pf = pq.ParquetFile(data_path)
-    batches = []
-    rows_read = 0
-    for batch in pf.iter_batches(batch_size=min(max_samples, 10000), columns=NEEDED_COLS):
+def _load_parquet_rows(path: str, n: int) -> pd.DataFrame:
+    pf = pq.ParquetFile(path)
+    batches, rows_read = [], 0
+    for batch in pf.iter_batches(batch_size=min(n, 10000), columns=NEEDED_COLS):
         batches.append(batch.to_pandas())
         rows_read += len(batches[-1])
-        if rows_read >= max_samples:
+        if rows_read >= n:
             break
+    return pd.concat(batches, ignore_index=True).head(n) if batches else pd.DataFrame()
 
-    df = pd.concat(batches, ignore_index=True).head(max_samples)
-    print(f"[data] Loaded {len(df)} rows")
+
+def _download_base_data() -> str | None:
+    """Download processed/train.parquet from S3 for combining with retrain data."""
+    bucket   = os.environ.get("S3_BUCKET")
+    endpoint = os.environ.get("S3_ENDPOINT") or os.environ.get("MLFLOW_S3_ENDPOINT_URL")
+    key_id   = os.environ.get("AWS_ACCESS_KEY_ID")
+    secret   = os.environ.get("AWS_SECRET_ACCESS_KEY")
+    if not all([bucket, endpoint, key_id, secret]):
+        return None
+    try:
+        import boto3
+        s3 = boto3.client("s3", endpoint_url=endpoint,
+                          aws_access_key_id=key_id,
+                          aws_secret_access_key=secret)
+        s3.download_file(bucket, BASE_DATA_S3_KEY, BASE_DATA_LOCAL)
+        print(f"[data] Downloaded base data from s3://{bucket}/{BASE_DATA_S3_KEY}")
+        return BASE_DATA_LOCAL
+    except Exception as e:
+        print(f"[data] Could not download base data: {e}")
+        return None
+
+
+def load_and_prepare_data(cfg: dict) -> tuple[pd.DataFrame, dict]:
+    """
+    Load training data.  In retrain mode (DATA_PATH env var set), combines
+    retrain data with historical base data from S3 to maintain ~max_samples total.
+    Returns (dataframe, data_stats_dict) for MLflow logging.
+    """
+    data_path   = os.environ.get("DATA_PATH") or cfg["data_path"]
+    max_samples = cfg.get("max_samples", 200000)
+    is_retrain  = bool(os.environ.get("DATA_PATH"))
+
+    if is_retrain:
+        retrain_df = _load_parquet_rows(data_path, max_samples)
+        n_retrain  = len(retrain_df)
+        print(f"[data] Retrain rows: {n_retrain:,} from {data_path}")
+
+        n_base    = max(0, max_samples - n_retrain)
+        base_path = _download_base_data() if n_base > 0 else None
+        if base_path:
+            base_df = _load_parquet_rows(base_path, n_base)
+            df      = pd.concat([retrain_df, base_df], ignore_index=True)
+            print(f"[data] Combined: {n_retrain:,} retrain + {len(base_df):,} base = {len(df):,} rows")
+            stats = {"n_retrain_rows": n_retrain, "n_base_rows": len(base_df)}
+        else:
+            df    = retrain_df
+            print(f"[data] Retrain only (no base data): {len(df):,} rows")
+            stats = {"n_retrain_rows": n_retrain, "n_base_rows": 0}
+    else:
+        df    = _load_parquet_rows(data_path, max_samples)
+        print(f"[data] Loaded {len(df):,} rows from {data_path}")
+        stats = {"n_retrain_rows": 0, "n_base_rows": len(df)}
+
     print(f"[data] Label distribution:")
     print(f"  engaged (1): {(df['is_engaged'] == 1).sum()}")
     print(f"  skipped (0): {(df['is_engaged'] == 0).sum()}")
     print(f"[data] Features: {FEATURE_COLS}")
-
-    return df
+    return df, stats
 
 
 def split_by_session(df: pd.DataFrame, train_ratio: float = 0.8, seed: int = 42):
@@ -247,7 +292,8 @@ def main():
         mlflow.log_text(gpu_info, "environment-info.txt")
 
         # --- Load data ---
-        df = load_and_prepare_data(cfg)
+        df, data_stats = load_and_prepare_data(cfg)
+        mlflow.log_params(data_stats)
 
         # --- Split ---
         train_df, val_df = split_by_session(df, cfg.get("train_ratio", 0.8), cfg.get("random_seed", 42))
