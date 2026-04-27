@@ -151,7 +151,7 @@ spec:
           parameters:
             - name: data-path
         container:
-          image: node1:5000/smartqueue-training:v1
+          image: node1:5000/smartqueue-training:v2
           command: [sh, -c]
           args:
             - |
