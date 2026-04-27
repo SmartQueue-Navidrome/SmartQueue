@@ -148,24 +148,24 @@ def save_model_locally(model) -> None:
     print(f"[save] Model saved locally to {LOCAL_MODEL_PATH}")
 
 
-def get_production_metrics(client: MlflowClient) -> dict | None:
+def get_baseline_metrics(client: MlflowClient) -> dict | None:
     """
-    Fetch val_auc and val_logloss of the current Production model in registry.
-    Returns None if no Production model exists yet.
+    Fetch val_auc and val_logloss of the best existing model in registry.
+    Checks Production first, then falls back to the latest Staging version.
+    Returns None if no registered model exists yet.
     """
-    try:
-        prod_versions = client.get_latest_versions(MODEL_REGISTRY_NAME, stages=["Production"])
-        if not prod_versions:
-            return None
-        prod_run_id = prod_versions[0].run_id
-        prod_run = client.get_run(prod_run_id)
-        return {
-            "val_auc": float(prod_run.data.metrics.get("val_auc", 0.0)),
-            "val_logloss": float(prod_run.data.metrics.get("val_logloss", 999.0)),
-        }
-    except Exception as e:
-        print(f"[gate] Could not fetch production model metrics: {e}")
-        return None
+    for stage in ["Production", "Staging"]:
+        try:
+            versions = client.get_latest_versions(MODEL_REGISTRY_NAME, stages=[stage])
+            if versions:
+                run = client.get_run(versions[0].run_id)
+                return {
+                    "val_auc": float(run.data.metrics.get("val_auc", 0.0)),
+                    "val_logloss": float(run.data.metrics.get("val_logloss", 999.0)),
+                }
+        except Exception as e:
+            print(f"[gate] Could not fetch {stage} model metrics: {e}")
+    return None
 
 
 def evaluate_quality_gate(val_auc: float, val_logloss: float, client: MlflowClient) -> tuple[bool, str]:
@@ -175,7 +175,7 @@ def evaluate_quality_gate(val_auc: float, val_logloss: float, client: MlflowClie
     Gate rules (all must pass):
       1. val_auc >= AUC_FLOOR
       2. val_logloss <= LOGLOSS_CEILING
-      3. val_auc > current Production model's val_auc  (skipped if no prod model)
+      3. val_auc > current best model's val_auc + AUC_MIN_DELTA  (skipped if no registered model)
     """
     if val_auc < AUC_FLOOR:
         return False, f"val_auc {val_auc:.4f} < floor {AUC_FLOOR}"
@@ -183,13 +183,13 @@ def evaluate_quality_gate(val_auc: float, val_logloss: float, client: MlflowClie
     if val_logloss > LOGLOSS_CEILING:
         return False, f"val_logloss {val_logloss:.4f} > ceiling {LOGLOSS_CEILING}"
 
-    prod = get_production_metrics(client)
-    if prod is not None:
-        if val_auc < prod["val_auc"] + AUC_MIN_DELTA:
-            return False, f"val_auc {val_auc:.4f} does not improve production {prod['val_auc']:.4f} by {AUC_MIN_DELTA}"
-        print(f"[gate] Beats production AUC by required margin: {val_auc:.4f} > {prod['val_auc']:.4f} + {AUC_MIN_DELTA}")
+    baseline = get_baseline_metrics(client)
+    if baseline is not None:
+        if val_auc < baseline["val_auc"] + AUC_MIN_DELTA:
+            return False, f"val_auc {val_auc:.4f} does not improve baseline {baseline['val_auc']:.4f} by {AUC_MIN_DELTA}"
+        print(f"[gate] Beats baseline AUC by required margin: {val_auc:.4f} > {baseline['val_auc']:.4f} + {AUC_MIN_DELTA}")
     else:
-        print("[gate] No production model found — applying absolute thresholds only")
+        print("[gate] No registered model found — applying absolute thresholds only")
 
     return True, "all checks passed"
 
@@ -206,7 +206,7 @@ def register_model(run_id: str, val_auc: float, val_logloss: float, client: Mlfl
         name=MODEL_REGISTRY_NAME,
         version=mv.version,
         stage="Staging",
-        archive_existing_versions=False,
+        archive_existing_versions=True,
     )
     client.set_model_version_tag(MODEL_REGISTRY_NAME, mv.version, "val_auc", f"{val_auc:.4f}")
     client.set_model_version_tag(MODEL_REGISTRY_NAME, mv.version, "val_logloss", f"{val_logloss:.4f}")
