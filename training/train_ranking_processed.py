@@ -116,25 +116,7 @@ def train_logistic_regression(X_train, y_train, X_val, y_val, cfg):
     return model, y_pred
 
 
-def load_previous_lgbm_model(client: MlflowClient):
-    """Load the latest registered LightGBM model for warm-start fine-tuning.
-    Returns a lgb.Booster if found, else None (triggers training from scratch).
-    """
-    for stage in ["Production", "Staging"]:
-        try:
-            versions = client.get_latest_versions(MODEL_REGISTRY_NAME, stages=[stage])
-            if versions:
-                model_uri = f"models:/{MODEL_REGISTRY_NAME}/{stage}"
-                booster = mlflow.lightgbm.load_model(model_uri)
-                print(f"[finetune] Loaded {stage} v{versions[0].version} as init_model")
-                return booster
-        except Exception as e:
-            print(f"[finetune] Could not load {stage} model: {e}")
-    print("[finetune] No previous model found — training from scratch")
-    return None
-
-
-def train_lightgbm(X_train, y_train, X_val, y_val, cfg, init_model=None):
+def train_lightgbm(X_train, y_train, X_val, y_val, cfg):
     print("[train] Training LightGBM...")
     model_params = cfg.get("model_params", {})
     model_params.setdefault("objective", "binary")
@@ -151,7 +133,6 @@ def train_lightgbm(X_train, y_train, X_val, y_val, cfg, init_model=None):
         valid_names=["train", "val"],
         num_boost_round=cfg.get("num_boost_round", 200),
         callbacks=[lgb.log_evaluation(period=50)],
-        init_model=init_model,
     )
     y_pred = model.predict(X_val)
     return model, y_pred
@@ -284,9 +265,7 @@ def main():
         if model_type == "logistic_regression":
             model, y_pred = train_logistic_regression(X_train, y_train, X_val, y_val, cfg)
         elif model_type == "lightgbm":
-            init_model = load_previous_lgbm_model(client)
-            mlflow.log_param("finetune", init_model is not None)
-            model, y_pred = train_lightgbm(X_train, y_train, X_val, y_val, cfg, init_model=init_model)
+            model, y_pred = train_lightgbm(X_train, y_train, X_val, y_val, cfg)
             importances = model.feature_importance(importance_type="gain")
             for feat, imp in zip(FEATURE_COLS, importances):
                 mlflow.log_metric(f"feat_importance_{feat}", float(imp))
