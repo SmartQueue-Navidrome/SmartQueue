@@ -3,7 +3,7 @@
 
 resource "openstack_blockstorage_volume_v3" "navidrome" {
   name = "vol-navidrome-${var.suffix}"
-  size = 5 # GiB
+  size = 10 # GiB — was expanded from 5 on the live cluster
 }
 
 resource "openstack_blockstorage_volume_v3" "postgres" {
