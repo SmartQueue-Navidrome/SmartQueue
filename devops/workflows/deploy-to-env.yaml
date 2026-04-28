@@ -24,12 +24,6 @@ spec:
               parameters:
                 - name: app-name
                   value: "{{inputs.parameters.app-name}}"
-        - - name: update-model-env
-            template: update-model-env
-            arguments:
-              parameters:
-                - name: app-name
-                  value: "{{inputs.parameters.app-name}}"
                 - name: model-uri
                   value: "{{inputs.parameters.model-uri}}"
                 - name: model-version
@@ -49,6 +43,8 @@ spec:
       inputs:
         parameters:
           - name: app-name
+          - name: model-uri
+          - name: model-version
       container:
         image: quay.io/argoproj/argocd:v2.12.0
         command: [sh, -c]
@@ -59,7 +55,11 @@ spec:
               --username admin \
               --password "$ARGOCD_PASSWORD" \
               --insecure --plaintext
-
+            argocd app set {{inputs.parameters.app-name}} \
+              --kustomize-image node1:5000/smartqueue-serving:v2
+            argocd app set {{inputs.parameters.app-name}} \
+              --parameter MODEL_URI={{inputs.parameters.model-uri}} \
+              --parameter MODEL_VERSION={{inputs.parameters.model-version}} || true
             argocd app sync {{inputs.parameters.app-name}} --force
             argocd app wait {{inputs.parameters.app-name}} --timeout 120
         env:
@@ -69,70 +69,38 @@ spec:
                 name: argocd-initial-admin-secret
                 key: password
 
-    - name: update-model-env
-      inputs:
-        parameters:
-          - name: app-name
-          - name: model-uri
-          - name: model-version
-      script:
-        image: quay.io/argoproj/argocd:v2.12.0
-        command: [bash]
-        source: |
-          set -e
-          apt-get update -qq > /dev/null 2>&1 && apt-get install -y -qq curl > /dev/null 2>&1
-          curl -sLO "https://dl.k8s.io/release/v1.30.6/bin/linux/amd64/kubectl"
-          chmod +x kubectl && mv kubectl /usr/local/bin/
-
-          case "{{inputs.parameters.app-name}}" in
-            smartqueue-prod)    NS="smartqueue-prod" ;;
-            smartqueue-staging) NS="smartqueue-staging" ;;
-            smartqueue-canary)  NS="smartqueue-canary" ;;
-            *)                  NS="smartqueue-prod" ;;
-          esac
-
-          kubectl set env deployment/smartqueue-serving -n "$NS" \
-            MODEL_URI={{inputs.parameters.model-uri}} \
-            MODEL_VERSION={{inputs.parameters.model-version}}
-
-          kubectl rollout status deployment/smartqueue-serving -n "$NS" --timeout=120s
-          echo "Deployed model {{inputs.parameters.model-version}} to $NS"
-
     - name: audit-log
       inputs:
         parameters:
           - name: app-name
           - name: model-version
           - name: action
-      script:
+      container:
         image: quay.io/argoproj/argocd:v2.12.0
-        command: [bash]
-        source: |
-          set -e
-          apt-get update -qq > /dev/null 2>&1 && apt-get install -y -qq curl > /dev/null 2>&1
-          curl -sLO "https://dl.k8s.io/release/v1.30.6/bin/linux/amd64/kubectl"
-          chmod +x kubectl && mv kubectl /usr/local/bin/
+        command: [sh, -c]
+        args:
+          - |
+            TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+            # Determine namespace from app name
+            case "{{inputs.parameters.app-name}}" in
+              smartqueue-prod)    NS="smartqueue-prod" ;;
+              smartqueue-staging) NS="smartqueue-staging" ;;
+              smartqueue-canary)  NS="smartqueue-canary" ;;
+              *)                  NS="smartqueue-prod" ;;
+            esac
+            ENV=$(echo $NS | sed 's/smartqueue-//')
 
-          TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          case "{{inputs.parameters.app-name}}" in
-            smartqueue-prod)    NS="smartqueue-prod" ;;
-            smartqueue-staging) NS="smartqueue-staging" ;;
-            smartqueue-canary)  NS="smartqueue-canary" ;;
-            *)                  NS="smartqueue-prod" ;;
-          esac
-          ENV=$(echo $NS | sed 's/smartqueue-//')
+            ENTRY="$TIMESTAMP | {{inputs.parameters.action}} | $ENV | {{inputs.parameters.model-version}} | triggered by ct-pipeline"
 
-          ENTRY="$TIMESTAMP | {{inputs.parameters.action}} | $ENV | {{inputs.parameters.model-version}} | triggered by ct-pipeline"
+            EXISTING=$(kubectl get configmap model-audit-log -n smartqueue-prod \
+              -o jsonpath='{.data.log}' 2>/dev/null || echo "")
 
-          EXISTING=$(kubectl get configmap model-audit-log -n smartqueue-prod \
-            -o jsonpath='{.data.log}' 2>/dev/null || echo "")
-
-          if [ -z "$EXISTING" ]; then
-            kubectl create configmap model-audit-log -n smartqueue-prod \
-              --from-literal=log="$ENTRY" --dry-run=client -o yaml | kubectl apply -f -
-          else
-            NEW_LOG=$(printf '%s\n%s' "$EXISTING" "$ENTRY")
-            kubectl create configmap model-audit-log -n smartqueue-prod \
-              --from-literal=log="$NEW_LOG" --dry-run=client -o yaml | kubectl apply -f -
-          fi
-          echo "Audit logged: $ENTRY"
+            if [ -z "$EXISTING" ]; then
+              kubectl create configmap model-audit-log -n smartqueue-prod \
+                --from-literal=log="$ENTRY" --dry-run=client -o yaml | kubectl apply -f -
+            else
+              NEW_LOG=$(printf '%s\n%s' "$EXISTING" "$ENTRY")
+              kubectl create configmap model-audit-log -n smartqueue-prod \
+                --from-literal=log="$NEW_LOG" --dry-run=client -o yaml | kubectl apply -f -
+            fi
+            echo "Audit logged: $ENTRY"
