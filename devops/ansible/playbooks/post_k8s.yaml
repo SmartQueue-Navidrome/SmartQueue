@@ -14,48 +14,8 @@
       args:
         creates: /home/cc/.kube/config
 
-- name: Setup NAT on node1 for worker internet access
-  hosts: control_plane
-  become: true
-  tasks:
-
-    - name: Enable IP forwarding
-      sysctl:
-        name: net.ipv4.ip_forward
-        value: "1"
-        sysctl_set: true
-        reload: true
-
-    - name: Setup NAT masquerade (sharednet1 interface)
-      shell: |
-        IFACE=$(ip -4 route get 8.8.8.8 | awk '{print $5; exit}')
-        iptables -t nat -C POSTROUTING -o $IFACE -s 192.168.1.0/24 -j MASQUERADE 2>/dev/null || \
-        iptables -t nat -A POSTROUTING -o $IFACE -s 192.168.1.0/24 -j MASQUERADE
-      changed_when: false
-
-    - name: Persist iptables rules
-      shell: |
-        apt-get install -y iptables-persistent
-        iptables-save > /etc/iptables/rules.v4
-      args:
-        creates: /etc/iptables/rules.v4
-
-- name: Configure default route on workers
-  hosts: workers:!control_plane
-  become: true
-  tasks:
-
-    - name: Set default gateway to node1 private IP
-      shell: |
-        ip route replace default via 192.168.1.11
-      changed_when: false
-
-    - name: Set DNS
-      copy:
-        content: |
-          nameserver 8.8.8.8
-          nameserver 8.8.4.4
-        dest: /etc/resolv.conf
+    # NAT setup moved to setup_nat.yaml (runs BEFORE kubespray).
+    # post_k8s.yaml no longer manages NAT — see setup_nat.yaml.
 
 - name: Install Docker CLI and registry
   hosts: control_plane
@@ -96,10 +56,20 @@
         state: started
         enabled: true
 
+    - name: Check if registry container exists
+      shell: docker ps -a --format '{%raw%}{{.Names}}{%endraw%}' | grep -q '^registry$'
+      register: registry_exists
+      failed_when: false
+      changed_when: false
+
     - name: Run Docker registry container
       shell: docker run -d --name registry --restart=always -p 5000:5000 registry:2
-      args:
-        creates: /var/lib/docker
+      when: registry_exists.rc != 0
+
+    - name: Ensure registry container is running
+      shell: docker start registry
+      when: registry_exists.rc == 0
+      changed_when: false
 
 - name: Install Helm
   hosts: control_plane
@@ -228,8 +198,6 @@
     - name: Apply WorkflowTemplates
       command: kubectl apply -f /home/cc/workflows/
 
-    - name: Create s3-secret in argo namespace
-      shell: |
-        kubectl get secret s3-secret -n smartqueue-platform -o yaml \
-          | sed 's/namespace: smartqueue-platform/namespace: argo/' \
-          | kubectl apply -f - || true
+    # NOTE: s3-secret copy to argo namespace is done by deploy.sh
+    # AFTER secrets are created (Phase 7). It cannot run here because
+    # secrets don't exist yet at this point in the deployment flow.

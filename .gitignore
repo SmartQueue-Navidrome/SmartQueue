@@ -220,6 +220,9 @@ __marimo__/
 terraform.tfvars
 .terraform.lock.hcl
 
+# Deployment secrets (credentials for K8S secrets)
+devops/.secrets
+
 # Kubespray release (cloned on Chameleon, not a submodule)
 devops/kubespray-release/
 

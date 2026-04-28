@@ -26,15 +26,15 @@ spec:
             - name: MLFLOW_TRACKING_URI
               value: http://mlflow.smartqueue-platform.svc.cluster.local:5000
             - name: MODEL_URI
-              value: runs:/152218a6b22148ceb11acc4f02e97e07/model
+              value: "models:/smartqueue-ranking/Production"
             - name: MODEL_NAME
               value: smartqueue-ranking
             - name: MODEL_STAGE
               value: Production
             - name: MODEL_VERSION
-              value: v152218a6
+              value: latest
             - name: MOCK_ON_MLFLOW_FAIL
-              value: "false"
+              value: "true"
             - name: POSTGRES_HOST
               value: postgres.smartqueue-platform.svc.cluster.local
             - name: POSTGRES_USER

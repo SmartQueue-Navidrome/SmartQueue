@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: navidrome-config
+  namespace: smartqueue-platform
+data:
+  navidrome.toml: |
+    # SmartQueue integration
+    [SmartQueue]
+    Enabled = true
+    ServiceURL = "http://smartqueue-serving.smartqueue-prod.svc.cluster.local:8000"
+    Timeout = "10s"

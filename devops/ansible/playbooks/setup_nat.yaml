@@ -1,0 +1,78 @@
+---
+# NAT setup — MUST run BEFORE kubespray
+# Workers are on private network only. Without NAT, they cannot apt update
+# and kubespray will fail at "Update package management cache" (~24 min wasted).
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts.ini playbooks/setup_nat.yaml
+
+- name: Setup NAT on node1 for worker internet access
+  hosts: control_plane
+  become: true
+  tasks:
+
+    - name: Enable IP forwarding
+      sysctl:
+        name: net.ipv4.ip_forward
+        value: "1"
+        sysctl_set: true
+        reload: true
+
+    - name: Detect outbound interface (sharednet1)
+      shell: ip -4 route get 8.8.8.8 | awk '{print $5; exit}'
+      register: outbound_iface
+      changed_when: false
+
+    - name: Setup NAT masquerade
+      shell: |
+        iptables -t nat -C POSTROUTING -o {{ outbound_iface.stdout }} -s 192.168.1.0/24 -j MASQUERADE 2>/dev/null || \
+        iptables -t nat -A POSTROUTING -o {{ outbound_iface.stdout }} -s 192.168.1.0/24 -j MASQUERADE
+      changed_when: false
+
+    - name: Detect private network interface (192.168.1.x)
+      shell: ip -4 addr show | grep '192.168.1' | awk '{print $NF}'
+      register: private_iface
+      changed_when: false
+
+    - name: Allow forwarding from private network
+      shell: |
+        iptables -C FORWARD -i {{ private_iface.stdout }} -o {{ outbound_iface.stdout }} -j ACCEPT 2>/dev/null || \
+        iptables -A FORWARD -i {{ private_iface.stdout }} -o {{ outbound_iface.stdout }} -j ACCEPT
+        iptables -C FORWARD -i {{ outbound_iface.stdout }} -o {{ private_iface.stdout }} -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || \
+        iptables -A FORWARD -i {{ outbound_iface.stdout }} -o {{ private_iface.stdout }} -m state --state RELATED,ESTABLISHED -j ACCEPT
+      changed_when: false
+
+    - name: Install iptables-persistent
+      apt:
+        name: iptables-persistent
+        state: present
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    - name: Persist iptables rules
+      shell: iptables-save > /etc/iptables/rules.v4
+      changed_when: false
+
+- name: Configure default route and DNS on workers
+  hosts: workers:!control_plane
+  become: true
+  tasks:
+
+    - name: Set default gateway to node1 private IP
+      shell: ip route replace default via 192.168.1.11
+      changed_when: false
+
+    - name: Set DNS resolvers
+      copy:
+        content: |
+          nameserver 8.8.8.8
+          nameserver 8.8.4.4
+        dest: /etc/resolv.conf
+
+    - name: Verify internet connectivity
+      shell: curl -s --connect-timeout 10 http://archive.ubuntu.com > /dev/null && echo OK
+      register: inet_check
+      changed_when: false
+      retries: 3
+      delay: 5
+      until: inet_check.rc == 0
